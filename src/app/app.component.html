@@ -1,304 +1,366 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <!-- Include Bootstrap CSS and JavaScript libraries -->
-    <link
-      rel="stylesheet"
-      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
-      />
-      <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
-      <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<!--
+  Previously this template was a full <!DOCTYPE html> document with its own
+  <head>, loading Bootstrap 4.5.2, jQuery and Popper from CDNs on top of the
+  Bootstrap 5 already bundled by the build. The script tags never executed
+  (Angular does not run scripts in templates) but the Bootstrap 4 stylesheet did
+  load, so two major versions of Bootstrap were fighting over the layout.
 
-      <style>
-        /* Custom CSS for the container with border, shadow, rounded corners, transparent blue border, and spacing between rows */
-      </style>
-      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
-    </head>
-    <body>
-      <div class="container">
-        <div
-          class="row justify-content-center align-items-center"
-          style="height: 100vh"
+  Bootstrap 4's `form-row` and `ml-auto` are now Bootstrap 5's `row` and
+  `ms-auto`, and the CDN links are gone. Font Awesome, which the help icon
+  genuinely needs, moved to index.html where document-level assets belong.
+-->
+<div class="container">
+  <div class="row justify-content-center align-items-center" style="min-height: 100vh">
+    <div [ngClass]="{ readme: true, 'col-md-6': !readmeHidden }">
+      <div class="readme" [ngClass]="{ hidden: readmeHidden }">
+        <strong>Instructions:</strong>
+        <ol>
+          <li>You must already be signed into DataDog in your browser for this to work.</li>
+          <li>
+            <code>ServProvCode</code>, <code>Host</code>, <code>Environment</code> and
+            <code>Begin/End Timestamp</code> are required fields.
+          </li>
+          <li>
+            If you are searching for a <code>TRACE_ID</code>, all other fields are ignored. You do
+            not need to erase them or make other selections.
+          </li>
+          <li>
+            When searching for additional parameters, if your parameter has a space in it, surround
+            it with quotes <code>""</code>.
+          </li>
+          <li>When searching for multiple additional parameters, put a space between each one.</li>
+        </ol>
+
+        <strong>Query engine:</strong>
+        <ol>
+          <li>
+            <code>Compare both</code> shows the old and new query side by side without opening
+            either, so you can check the new one before trusting it.
+          </li>
+          <li>
+            <code>New (v2)</code> scopes payment and document services by agency and environment.
+            The old engine did not, which is why those searches returned every tenant's logs.
+          </li>
+          <li><code>Legacy</code> reproduces the old queries exactly, as a fallback.</li>
+        </ol>
+
+        <strong>Tips:</strong>
+        <ol>
+          <li>
+            If you are searching for logs for something that took place in ACA, it's a good idea to
+            include <code>Civic Platform (biz)</code> as a selection as most errors ACA displays
+            come from the biz server.
+          </li>
+          <li>
+            If searching for something in relation to a specific record, always search for the Full
+            CapID, not the Alt-Id (Custom Id).
+          </li>
+          <li>
+            If searching for something in relation to a specific user, search by the username or
+            additional parameter <code>&#64;USER_ID:&lt;username-here&gt;</code> if for backoffice.
+            For an ACA user, search their email or PUBLICUSER ID.
+          </li>
+          <li>
+            Never assume that searching for a specific parameter will bring up related logging.
+            Sometimes logs don't contain the value you're searching for but are still related.
+          </li>
+          <li>
+            Use additional parameters to find logs that you identify are related. Once you find a
+            related log, filter for just the <code>&#64;TRACE_ID:</code> of that log to see it in its
+            full context.
+          </li>
+          <li>
+            If you search for something older than 15 days, you will automatically be redirected to
+            the rehydration page to rehydrate your search. If you are rehydrating, it is best to not
+            include any additional parameters in your rehydration as it will restrict the logs that
+            are rehydrated. Rehydrate for everything and then begin filtering with additional
+            parameters in datadog for what you're looking for.
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="col-md-6 container-border">
+      <form>
+        <!-- Title and logo -->
+        <div class="row form-row title-row">
+          <div class="col-md-6">
+            <h1>DDFetch</h1>
+          </div>
+          <!-- col-auto is required: Bootstrap 5 gives `.row > *` width:100%, so an
+               un-classed child wraps onto its own line instead of sitting right. -->
+          <div class="col-auto ms-auto">
+            <img src="assets/logo.jpeg" alt="Logo" style="max-height: 80px" />
+          </div>
+        </div>
+
+        <!-- ServProvCode, Host, Environment -->
+        <div class="row form-row">
+          <div class="col-md-4 mb-3">
+            <label for="inputServProvCode">ServProvCode</label>
+            <input type="text" class="form-control" id="inputServProvCode" required />
+          </div>
+
+          <div class="col-md-4 mb-3">
+            <label for="inputHost">Host</label>
+            <select class="form-control" id="inputHost" (change)="onHostChange()" required>
+              <option value="--SELECT--">--SELECT--</option>
+              <option value="US">US</option>
+              <option value="AU">AU</option>
+              <option value="CA">CA</option>
+              <option value="OREGON">OREGON</option>
+            </select>
+          </div>
+
+          <div class="col-md-4 mb-3">
+            <label for="inputEnvironment">Environment</label>
+            <select class="form-control" id="inputEnvironment" required>
+              <option value="--SELECT--">--SELECT--</option>
+              @for (env of availableEnvironments; track env) {
+                <option [value]="env">{{ env }}</option>
+              }
+            </select>
+          </div>
+        </div>
+
+        <!-- Timeframe and timestamps -->
+        <div class="row form-row">
+          <div class="col-md-4 mb-3">
+            <label for="selectedTimeframe">Timeframe</label>
+            <select
+              class="form-control"
+              id="selectedTimeframe"
+              [(ngModel)]="selectedTimeframe"
+              (change)="onTimeframeChange()"
+              name="selectedTimeframe"
+            >
+              <option value="TODAY">TODAY</option>
+              <option value="Past 15 Minutes">Past 15 Mins</option>
+              <option value="Past 1 Hour">Past 1 Hour</option>
+              <option value="Past 4 Hours">Past 4 Hours</option>
+              <option value="Past 1 Day">Past 1 Day</option>
+              <option value="Past 2 Days">Past 2 Days</option>
+              <option value="Past 3 Days">Past 3 Days</option>
+              <option value="Past 7 Days">Past 7 Days</option>
+              <option value="Past 15 Days">Past 15 Days</option>
+            </select>
+          </div>
+
+          <div class="col-md-4 mb-3">
+            <label for="inputBeginTimestamp">Begin Timestamp</label>
+            <input
+              type="datetime-local"
+              class="form-control"
+              id="inputBeginTimestamp"
+              [(ngModel)]="activeBeginCalendarValue"
+              name="activeBeginCalendarValue"
+            />
+          </div>
+
+          <div class="col-md-4 mb-3">
+            <label for="inputEndTimestamp">End Timestamp</label>
+            <input
+              type="datetime-local"
+              class="form-control"
+              id="inputEndTimestamp"
+              [(ngModel)]="activeEndCalendarValue"
+              name="activeEndCalendarValue"
+            />
+          </div>
+        </div>
+
+        <!-- Applications -->
+        <div class="row form-row">
+          <div class="col-md-4">
+            <label for="civicPlatformCheckbox" style="padding-right: 2px">Civic Platform</label>
+            <input
+              type="checkbox"
+              id="civicPlatformCheckbox"
+              name="applicationsUsed[]"
+              value="Civic Platform"
+            />
+          </div>
+          <div class="col-md-4">
+            <label for="citizenAccessCheckbox" style="padding-right: 2px">Citizen Access</label>
+            <input
+              type="checkbox"
+              id="citizenAccessCheckbox"
+              name="applicationsUsed[]"
+              value="Citizen Access"
+            />
+          </div>
+          <div class="col-md-4">
+            <label for="constructAPICheckbox" style="padding-right: 2px">Construct API</label>
+            <input
+              type="checkbox"
+              id="constructAPICheckbox"
+              name="applicationsUsed[]"
+              value="CAPI"
+            />
+          </div>
+        </div>
+
+        <!-- TRACE_ID -->
+        <div class="row form-row">
+          <div class="col-md-12 mb-3">
+            <label for="inputTraceID">TRACE_ID</label>
+            <input type="text" class="form-control" id="inputTraceID" />
+          </div>
+        </div>
+
+        <!-- Additional parameters -->
+        <div class="row form-row">
+          <div class="col-md-12 mb-3">
+            <label for="inputAdditionalParams">Additional Parameters</label>
+            <input type="text" class="form-control" id="inputAdditionalParams" />
+          </div>
+        </div>
+
+        <!-- Additional services -->
+        <div class="row form-row">
+          <div class="col-md-12 mb-3">
+            <label><strong>Additional Services</strong></label>
+          </div>
+        </div>
+
+        <div class="row form-row">
+          <div class="col-md-6">
+            <label><strong>Payments:</strong></label>
+            <div>
+              <label for="forteCheckbox" style="padding-right: 2px">Forte</label>
+              <input
+                type="checkbox"
+                id="forteCheckbox"
+                name="additionalServices[]"
+                value="Forte"
+              />
+            </div>
+            <div>
+              <label for="paypalCheckbox" style="padding-right: 2px">Paypal Commerce</label>
+              <input
+                type="checkbox"
+                id="paypalCheckbox"
+                name="additionalServices[]"
+                value="Paypal Commerce"
+              />
+            </div>
+            <div>
+              <label for="securePayCheckbox" style="padding-right: 2px">SecurePay</label>
+              <input
+                type="checkbox"
+                id="securePayCheckbox"
+                name="additionalServices[]"
+                value="SecurePay"
+              />
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label><strong>Documents:</strong></label>
+            <div>
+              <label for="acdsCheckbox" style="padding-right: 2px">ACDS</label>
+              <input type="checkbox" id="acdsCheckbox" name="additionalServices[]" value="ACDS" />
+            </div>
+            <div>
+              <label for="adsCheckbox" style="padding-right: 2px">ADS</label>
+              <input type="checkbox" id="adsCheckbox" name="additionalServices[]" value="ADS" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Query engine selector -->
+        <div class="row form-row">
+          <div class="col-md-12">
+            <label><strong>Query Engine</strong></label>
+            <div class="engine-select">
+              <label for="engineCompare">
+                <input
+                  type="radio"
+                  id="engineCompare"
+                  name="engineMode"
+                  [checked]="engineMode === 'compare'"
+                  (change)="onEngineModeChange('compare')"
+                />
+                Compare both
+              </label>
+              <label for="engineV2">
+                <input
+                  type="radio"
+                  id="engineV2"
+                  name="engineMode"
+                  [checked]="engineMode === 'v2'"
+                  (change)="onEngineModeChange('v2')"
+                />
+                New (v2)
+              </label>
+              <label for="engineLegacy">
+                <input
+                  type="radio"
+                  id="engineLegacy"
+                  name="engineMode"
+                  [checked]="engineMode === 'legacy'"
+                  (change)="onEngineModeChange('legacy')"
+                />
+                Legacy
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="row form-row">
+          <button
+            type="submit"
+            class="btn btn-primary custom-btn-primary col-md-4 mb-3"
+            (click)="onSubmit($event)"
           >
-          <div [ngClass]="{'readme': true, 'col-md-6': !readmeHidden}">
-            <!-- README Element -->
-            <div class="readme" [ngClass]="{ hidden: readmeHidden }">
-              <p>
-                <Strong>Instructions:</Strong>
-                <ol>
-                  <li>You must already be signed into DataDog in your browser for this to work.</li>
-                  <li>
-                    <code>ServProvCode</code>, <code>Environment</code>, and
-                    <code>Begin/End Timestamp</code> are required fields.
-                  </li>
-                  <li>
-                    If you are searching for a <code>TRACE_ID</code>, all other fields are ignored. You do not need to erase them or make other selections.
-                  </li>
-                  <li>
-                    When searching for additional parameters, if your parameter has a space in it, surround it with quotes <code>""</code>.
-                  </li>
-                  <li>
-                    When searching for multiple additional parameters, put a space between each one.
-                  </li>
-                </ol>
-                <p>
-                  <Strong>Tips:</Strong>
-                  <ol>
-                    <li>
-                      If you are searching for logs for something that took place in ACA, it's a good idea to include
-                      <code>Civic Platform (biz)</code> as a selection as most errors ACA displays come from the biz server.
-                    </li>
-                    <li>
-                      If searching for something in relation to a specific record, always search for the Full CapID, not the Alt-Id (Custom Id).
-                    </li>
-                    <li>
-                      If searching for something in relation to a specific user, search by the username or additional parameter
-                      <code>&#64;USER_ID:&lt;username-here&gt;</code> if for backoffice. For an ACA user, search their email or PUBLICUSER ID.
-                    </li>
-                    <li>
-                      Never assume that searching for a specific parameter will bring up related logging. Sometimes logs don't contain the value you're searching for but are still related.
-                    </li>
-                    <li>
-                      Use additional parameters to find logs that you identify are related. Once you find a related log, filter for just the
-                      <code>&#64;TRACE_ID:</code> of that log to see it in its full context.
-                    </li>
-                    <li>
-                      If you search for something older than 15 days, you will automatically be redirected to the rehydration page to rehydrate your search. If you are rehydrating,
-                      it is best to not include any additional parameters in your rehydration as it will restrict the logs that are rehydrated. Rehydrate for everything and then begin filtering
-                      with additional parameters in datadog for what you're looking for.
-                    </li>
-                  </ol>
-                  <p>
-                    <Strong>Notes:</Strong>
+            Fetch
+          </button>
+
+          <div class="col-md-6"></div>
+
+          <i
+            class="fas fa-question-circle col-md-2"
+            style="font-size: 24px; color: rgba(136, 37, 218, 1); cursor: pointer"
+            (click)="toggleReadme()"
+          ></i>
+        </div>
+
+        <!-- Generated query preview -->
+        @if (previews.length) {
+          <div class="row form-row">
+            <div class="col-md-12">
+              <label><strong>Generated Query</strong></label>
+              @for (p of previews; track p.engine) {
+                <div class="query-preview" [class.query-preview-legacy]="p.engine === 'legacy'">
+                  <div class="query-preview-head">
+                    <span class="query-engine">{{ p.label }}</span>
+                    @if (p.rehydrate) {
+                      <span class="query-badge">rehydration required</span>
+                    }
+                    @if (p.url) {
+                      <button
+                        type="button"
+                        class="btn btn-sm custom-btn-primary query-open"
+                        (click)="openPreview(p)"
+                      >
+                        Open in Datadog
+                      </button>
+                    }
                   </div>
+                  @if (p.query) {
+                    <code class="query-text">{{ p.query }}</code>
+                  }
+                  @for (w of p.warnings; track w) {
+                    <div class="query-warning">{{ w }}</div>
+                  }
+                  @for (e of p.errors; track e) {
+                    <div class="query-error">{{ e }}</div>
+                  }
                 </div>
-                <div class="col-md-6 container-border">
-                  <form>
-                    <!-- Row 1 - Title and Logo -->
-                    <div class="form-row title-row">
-                      <div class="col-md-6">
-                        <h1>DDFetch</h1>
-                      </div>
-                      <div class="ml-auto">
-                        <img
-                          src="assets/logo.jpeg"
-                          alt="Logo"
-                          style="max-height: 80px"
-                          />
-                        </div>
-                      </div>
-
-                      <!-- Row 2 - ServProvCode, Host, and Environment -->
-                      <div class="form-row">
-                        <!-- ServProvCode Textbox -->
-                        <div class="col-md-4 mb-3">
-                          <label for="inputServProvCode">ServProvCode</label>
-                          <input
-                            type="text"
-                            class="form-control"
-                            id="inputServProvCode"
-                            required
-                            />
-                          </div>
-
-                          <!-- Host Dropdown -->
-                          <div class="col-md-4 mb-3">
-                            <label for="inputHost">Host</label>
-                            <select class="form-control" id="inputHost" (change)="onHostChange()" required>
-                              <option value="--SELECT--">--SELECT--</option>
-                              <option value="US">US</option>
-                              <option value="AU">AU</option>
-                              <option value="CA">CA</option>
-                              <option value="OREGON">OREGON</option>
-                            </select>
-                          </div>
-
-                          <!-- Environment Dropdown -->
-                          <div class="col-md-4 mb-3">
-                            <label for="inputEnvironment">Environment</label>
-                            <select class="form-control" id="inputEnvironment" required>
-                              <option value="--SELECT--">--SELECT--</option>
-                              @for (env of availableEnvironments; track env) {
-                                <option [value]="env">{{env}}</option>
-                              }
-                            </select>
-                          </div>
-                        </div>
-
-                        <div class="form-row">
-                          <div class="col-md-0.5"></div>
-                          <!-- Add a "Timeframe" dropdown with ngModel -->
-                          <div class="col-md-3 mb-3">
-                            <label for="selectedTimeframe">Timeframe</label>
-                            <select
-                              class="form-control"
-                              [(ngModel)]="selectedTimeframe"
-                              (change)="onTimeframeChange()"
-                              name="selectedTimeframe"
-                              >
-                              <option value="TODAY">TODAY</option>
-                              <option value="Past 15 Minutes">Past 15 Mins</option>
-                              <option value="Past 1 Hour">Past 1 Hour</option>
-                              <option value="Past 4 Hours">Past 4 Hours</option>
-                              <option value="Past 1 Day">Past 1 Day</option>
-                              <option value="Past 2 Days">Past 2 Days</option>
-                              <option value="Past 3 Days">Past 3 Days</option>
-                              <option value="Past 7 Days">Past 7 Days</option>
-                              <option value="Past 15 Days">Past 15 Days</option>
-                            </select>
-                          </div>
-                          <!-- Begin Timestamp Date and Time Selector -->
-                          <div class="col-md-4 mb-3">
-                            <label for="inputBeginTimestamp">Begin Timestamp</label>
-                            <input
-                              type="datetime-local"
-                              class="form-control"
-                              id="inputBeginTimestamp"
-                              [(ngModel)]="activeBeginCalendarValue"
-                              name="activeBeginCalendarValue"
-                              />
-                            </div>
-
-                            <!-- End Timestamp Date and Time Selector -->
-                            <div class="col-md-4 mb-3">
-                              <label for="inputEndTimestamp">End Timestamp</label>
-                              <input
-                                type="datetime-local"
-                                class="form-control"
-                                id="inputEndTimestamp"
-                                [(ngModel)]="activeEndCalendarValue"
-                                name="activeEndCalendarValue"
-                                />
-                              </div>
-                            </div>
-                            <!-- Add more rows here -->
-                            <div class="form-row">
-                              <div class="col-md-4">
-                                <label for="civicPlatformCheckbox" style="padding-right: 2px"
-                                  >Civic Platform</label
-                                  >
-                                  <input
-                                    type="checkbox"
-                                    id="civicPlatformCheckbox"
-                                    name="applicationsUsed[]"
-                                    value="Civic Platform"
-                                    />
-                                  </div>
-                                  <div class="col-md-4">
-                                    <label for="citizenAccessCheckbox" style="padding-right: 2px"
-                                      >Citizen Access</label
-                                      >
-                                      <input
-                                        type="checkbox"
-                                        id="citizenAccessCheckbox"
-                                        name="applicationsUsed[]"
-                                        value="Citizen Access"
-                                        />
-                                      </div>
-                                      <div class="col-md-4">
-                                        <label for="constructAPICheckbox" style="padding-right: 2px"
-                                          >Construct API</label
-                                          >
-                                          <input
-                                            type="checkbox"
-                                            id="constructAPICheckbox"
-                                            name="applicationsUsed[]"
-                                            value="CAPI"
-                                            />
-                                          </div>
-                                        </div>
-
-                                        <!-- Row 4 - TRACE_ID -->
-                                        <div class="form-row">
-                                          <div class="col-md-12 mb-3">
-                                            <label for="inputTraceID">TRACE_ID</label>
-                                            <input type="text" class="form-control" id="inputTraceID" />
-                                          </div>
-                                        </div>
-
-                                        <!-- Row 5 - Additional Parameters -->
-                                        <div class="form-row">
-                                          <div class="col-md-12 mb-3">
-                                            <label for="inputAdditionalParams">Additional Parameters</label>
-                                            <input
-                                              type="text"
-                                              class="form-control"
-                                              id="inputAdditionalParams"
-                                              />
-                                            </div>
-                                          </div>
-
-                                          <!-- Row 6 - Additional Services -->
-                                          <div class="form-row">
-                                            <div class="col-md-12 mb-3">
-                                              <label><strong>Additional Services</strong></label>
-                                            </div>
-                                          </div>
-
-                                          <div class="form-row">
-                                            <div class="col-md-6">
-                                              <label><strong>Payments:</strong></label>
-                                              <div>
-                                                <label for="forteCheckbox" style="padding-right: 2px">Forte</label>
-                                                <input
-                                                  type="checkbox"
-                                                  id="forteCheckbox"
-                                                  name="additionalServices[]"
-                                                  value="Forte"
-                                                  />
-                                                </div>
-                                                <div>
-                                                  <label for="paypalCheckbox" style="padding-right: 2px">Paypal Commerce</label>
-                                                  <input
-                                                    type="checkbox"
-                                                    id="paypalCheckbox"
-                                                    name="additionalServices[]"
-                                                    value="Paypal Commerce"
-                                                    />
-                                                  </div>
-                                                </div>
-                                                <div class="col-md-6">
-                                                  <label><strong>Documents:</strong></label>
-                                                  <div>
-                                                    <label for="acdsCheckbox" style="padding-right: 2px">ACDS</label>
-                                                    <input
-                                                      type="checkbox"
-                                                      id="acdsCheckbox"
-                                                      name="additionalServices[]"
-                                                      value="ACDS"
-                                                      />
-                                                    </div>
-                                                    <div>
-                                                      <label for="adsCheckbox" style="padding-right: 2px">ADS</label>
-                                                      <input
-                                                        type="checkbox"
-                                                        id="adsCheckbox"
-                                                        name="additionalServices[]"
-                                                        value="ADS"
-                                                        />
-                                                      </div>
-                                                    </div>
-                                                  </div>
-
-                                                  <div class="form-row">
-                                                    <!-- Submit Button -->
-                                                    <button
-                                                      type="submit"
-                                                      class="btn btn-primary custom-btn-primary col-md-4 mb-3"
-                                                      (click)="onSubmit($event)"
-                                                      >
-                                                      Fetch
-                                                    </button>
-
-                                                    <div class="col-md-6"></div>
-
-                                                    <!-- Button to Toggle README Visibility -->
-                                                    <i class="fas fa-question-circle col-md-2" style="font-size: 24px; color: rgba(136, 37, 218, 1); cursor: pointer;" (click)="toggleReadme()"></i>
-                                                  </div>
-                                                </form>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </body>
-                                      </html>
+              }
+            </div>
+          </div>
+        }
+      </form>
+    </div>
+  </div>
+</div>

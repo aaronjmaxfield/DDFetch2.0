@@ -38,6 +38,10 @@ describe('AppComponent (characterization)', () => {
         vi.useFakeTimers();
         vi.setSystemTime(NOW);
 
+        // These tests pin the LEGACY engine's output. The component now defaults
+        // to 'compare', which deliberately does not auto-open a URL.
+        component.engineMode = 'legacy';
+
         fixture.detectChanges();
     });
 
