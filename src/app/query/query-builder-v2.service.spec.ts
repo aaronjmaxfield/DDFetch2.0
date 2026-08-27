@@ -60,6 +60,37 @@ describe('QueryBuilderV2Service', () => {
         expect(branch).toContain('env:prod');
     });
 
+    it('A1: scopes ConfigStore by free text, because its JSON is not parsed', () => {
+        // Reversed on evidence. ConfigStore does carry SERV_PROV_CODE, MODULE,
+        // GUID and the trace IDs -- but inside an Azure App Service console-log
+        // envelope that Datadog does not parse, so only ~0.4% of lines have a
+        // promoted attribute and @SERV_PROV_CODE is not a facet at all. The
+        // agency is reachable by free text and nothing else.
+        const { query } = v2.build(
+            input({ applications: [], additionalServices: ['Forte'] })
+        );
+
+        const branch = query.slice(query.indexOf('service:configstore-service'));
+        expect(branch).toContain('service:configstore-service AND *AGCY*');
+        // Not the attribute scope -- those facets do not exist on these logs.
+        expect(branch.slice(0, 60)).not.toContain('@agencycode');
+    });
+
+    it('A1: free-text agency uses one casing, unlike the facet scope', () => {
+        // Facet values are case sensitive so @SERV_PROV_CODE needs both casings.
+        // Free-text matching is case insensitive, so a second casing would only
+        // pad the query. Confirmed live: *STANDARDTEST* and *standardtest*
+        // return identical counts.
+        const { query } = v2.build(
+            input({ applications: [], additionalServices: ['SecurePay'] })
+        );
+
+        const branch = query.slice(query.indexOf('service:app-pci-configstore'));
+        expect(branch).toContain('service:app-pci-configstore');
+        expect(branch).toContain('*AGCY*');
+        expect(branch).not.toContain('*agcy*');
+    });
+
     it('A1: does not AND the agency scope onto targets that carry no agency field', () => {
         // Confirmed: event-log-service and ConfigStore have no agency attribute
         // at all. AND-ing the agency scope across the whole branch excluded them

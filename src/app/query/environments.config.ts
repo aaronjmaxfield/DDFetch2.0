@@ -65,8 +65,17 @@ export interface EnvironmentDef {
    * `ca-nonprod`. Emitted as `env:(a OR b)`.
    */
   platformEnv?: string[];
-  /** `env:` value on the separate PCI cluster (SecurePay / Payrix / Worldpay). */
-  pciEnv?: string;
+  /**
+   * `env:` values on the separate PCI clusters (SecurePay / Payrix / Worldpay).
+   *
+   * An array, and `eng-arch-pci` is deliberately included for every non-prod
+   * environment. Measured over 30 days, that engineering cluster carries
+   * 2,106,623 app-pci-payment-adapter lines against 3,369 on prod-pci and 2,749
+   * on nonprod-pci -- 99.7% of the traffic. Scoping only to prod-pci and
+   * nonprod-pci made a SecurePay search look empty when the data was there all
+   * along.
+   */
+  pciEnv?: string[];
   /**
    * Exact @Properties.log.EnvName for CAPI.
    *
@@ -121,11 +130,11 @@ export const HOSTS: HostDef[] = [
     usesJndi: true,
     capiRegionClause: usCapiClusters,
     environments: [
-      { ui: 'PROD', jndi: 'prod', hostClause: 'host:*mtprd*', civpEnv: 'civp_prod_azure', platformEnv: ['prod'], pciEnv: 'prod-pci', capiEnvName: 'PROD', acaFilename: generic('prod') },
-      { ui: 'SUPP', jndi: 'supp', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'SUPP', acaFilename: generic('supp') },
+      { ui: 'PROD', jndi: 'prod', hostClause: 'host:*mtprd*', civpEnv: 'civp_prod_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: generic('prod') },
+      { ui: 'SUPP', jndi: 'supp', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'SUPP', acaFilename: generic('supp') },
       // ASSUMPTION (civpEnv): no `civp_test_azure` tag exists. US TEST biz logs
       // may be one of the civp_int*_azure clusters; not resolved.
-      { ui: 'TEST', jndi: 'test', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'TEST', acaFilename: generic('test') },
+      { ui: 'TEST', jndi: 'test', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST', acaFilename: generic('test') },
       {
         ui: 'STG',
         jndi: 'stg',
@@ -133,20 +142,20 @@ export const HOSTS: HostDef[] = [
         hostClause: '(host:*stg* AND -host:*austg* AND -host:*castg* AND -host:*orstg*)',
         civpEnv: 'civp_stg_azure',
         platformEnv: ['stg'],
-        pciEnv: 'nonprod-pci',
+        pciEnv: ['nonprod-pci', 'eng-arch-pci'],
         // CORRECTED: the EnvName is STAGE, not STG. `STG` matches nothing.
         capiEnvName: 'STAGE',
         acaFilename: generic('stg'),
       },
       // ASSUMPTION (civpEnv) for all four: no civp_nonprod{n}_azure tag exists.
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
       // ASSUMPTION (civpEnv): `civp_civcon_azure` is a high-volume tag and is the
       // only plausible match for CVCN, but the mapping was not confirmed.
       // ASSUMPTION (capiEnvName): no CVCN EnvName was observed.
-      { ui: 'CVCN', jndi: 'cvcn', hostClause: 'host:*cvcn*', civpEnv: 'civp_civcon_azure', platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'CVCN', acaFilename: generic('cvcn') },
+      { ui: 'CVCN', jndi: 'cvcn', hostClause: 'host:*cvcn*', civpEnv: 'civp_civcon_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CVCN', acaFilename: generic('cvcn') },
     ],
   },
   {
@@ -157,18 +166,18 @@ export const HOSTS: HostDef[] = [
     environments: [
       // CORRECTED: AU production CAPI is AUPROD. The AU cluster also emits PROD,
       // which is why the region clause above is doing the real work.
-      { ui: 'PROD', jndi: 'auprod', hostClause: 'host:*auprd*', civpEnv: 'civp_auprod_azure', platformEnv: ['prod'], pciEnv: 'prod-pci', capiEnvName: 'AUPROD', acaFilename: generic('auprod') },
-      { ui: 'SUPP', jndi: 'ausupp', hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'SUPP', acaFilename: generic('ausupp') },
+      { ui: 'PROD', jndi: 'auprod', hostClause: 'host:*auprd*', civpEnv: 'civp_auprod_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'AUPROD', acaFilename: generic('auprod') },
+      { ui: 'SUPP', jndi: 'ausupp', hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'SUPP', acaFilename: generic('ausupp') },
       // ASSUMPTION (civpEnv): no civp_autest_azure tag exists.
-      { ui: 'TEST', jndi: 'autest', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'TEST', acaFilename: generic('autest') },
+      { ui: 'TEST', jndi: 'autest', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST', acaFilename: generic('autest') },
       // CORRECTED: AUSTG, not STG.
-      { ui: 'STG', jndi: 'austg', hostClause: 'host:*austg*', civpEnv: 'civp_austg_azure', platformEnv: ['stg'], pciEnv: 'nonprod-pci', capiEnvName: 'AUSTG', acaFilename: generic('austg') },
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      { ui: 'STG', jndi: 'austg', hostClause: 'host:*austg*', civpEnv: 'civp_austg_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'AUSTG', acaFilename: generic('austg') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
       // ASSUMPTION (capiEnvName): no CONV EnvName was observed.
-      { ui: 'CONV', jndi: 'auconv', hostClause: 'host:*auconv*', civpEnv: 'civp_auconv_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'CONV', acaFilename: generic('auconv') },
+      { ui: 'CONV', jndi: 'auconv', hostClause: 'host:*auconv*', civpEnv: 'civp_auconv_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CONV', acaFilename: generic('auconv') },
     ],
   },
   {
@@ -178,15 +187,15 @@ export const HOSTS: HostDef[] = [
     capiRegionNote:
       'No Canadian CAPI cluster was found in Datadog, and no PRODCA or STGCA EnvName value exists. A CA CAPI search is unlikely to return anything.',
     environments: [
-      { ui: 'PROD', jndi: 'prodca', hostClause: 'host:*caprd*', civpEnv: 'civp_prodca_azure', platformEnv: ['prod'], pciEnv: 'prod-pci', capiEnvName: 'PROD', acaFilename: generic('prodca') },
-      { ui: 'STG', jndi: 'stgca', hostClause: 'host:*castg*', civpEnv: 'civp_stgca_azure', platformEnv: ['stg'], pciEnv: 'nonprod-pci', capiEnvName: 'STAGE', acaFilename: generic('stgca') },
+      { ui: 'PROD', jndi: 'prodca', hostClause: 'host:*caprd*', civpEnv: 'civp_prodca_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: generic('prodca') },
+      { ui: 'STG', jndi: 'stgca', hostClause: 'host:*castg*', civpEnv: 'civp_stgca_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'STAGE', acaFilename: generic('stgca') },
       // ASSUMPTION (civpEnv) for all four: `civp_suppca_azure` exists and is
       // busy, but there is no SUPP entry in this dropdown to map it to, and
       // guessing which NONPROD it corresponds to would break the others.
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
     ],
   },
   {
@@ -198,7 +207,7 @@ export const HOSTS: HostDef[] = [
     capiRegionNote:
       'Oregon CAPI logs are emitted from the US clusters, and Oregon PROD shares the EnvName value PROD with US PROD, so an Oregon PROD CAPI search cannot be separated from a US one.',
     environments: [
-      { ui: 'PROD', jndi: 'orprd', hostClause: 'host:*orprd*', civpEnv: 'civp_orprd_azure', platformEnv: ['prod'], pciEnv: 'prod-pci', capiEnvName: 'PROD', acaFilename: oregon('prd') },
+      { ui: 'PROD', jndi: 'orprd', hostClause: 'host:*orprd*', civpEnv: 'civp_orprd_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: oregon('prd') },
       {
         ui: 'TRAIN',
         jndi: 'ortest',
@@ -209,7 +218,7 @@ export const HOSTS: HostDef[] = [
         hostClause: '(host:*orsupp* OR host:*ortest*)',
         civpEnv: 'civp_oregon-train_azure',
         platformEnv: ['nonprod'],
-        pciEnv: 'nonprod-pci',
+        pciEnv: ['nonprod-pci', 'eng-arch-pci'],
         // ASSUMPTION: no TRAIN EnvName was observed.
         capiEnvName: 'TRAIN',
         // CONFIRMED single-tenant. `oregon-oregon-train-aca_debug.log` is the
@@ -219,13 +228,13 @@ export const HOSTS: HostDef[] = [
       },
       // ACA logs are not collected in DEV/CONFIG -- acaFilename omitted so v2
       // warns instead of silently dropping the user's selection.
-      { ui: 'DEV', jndi: 'ordev', hostClause: 'host:*ordev*', civpEnv: 'civp_oregon-dev_azure', platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'DEV' },
-      { ui: 'CONFIG', jndi: 'orconf', hostClause: 'host:*orconf*', civpEnv: 'civp_orconf_azure', platformEnv: ['nonprod'], pciEnv: 'nonprod-pci', capiEnvName: 'CONFIG' },
+      { ui: 'DEV', jndi: 'ordev', hostClause: 'host:*ordev*', civpEnv: 'civp_oregon-dev_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'DEV' },
+      { ui: 'CONFIG', jndi: 'orconf', hostClause: 'host:*orconf*', civpEnv: 'civp_orconf_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CONFIG' },
       // CORRECTED: acaFilename removed. Oregon STG ships no ACA logs at all --
       // civp_orstg_azure contains av.biz, iis, av.indexer and av.web only, and
       // orstg-ACA-0 emits nothing but IIS access logs. The previous
       // `{agency}-orstg-aca` value would always have returned zero.
-      { ui: 'STG', jndi: 'orstg', hostClause: 'host:*orstg*', civpEnv: 'civp_orstg_azure', platformEnv: ['stg'], pciEnv: 'nonprod-pci', capiEnvName: 'STAGE' },
+      { ui: 'STG', jndi: 'orstg', hostClause: 'host:*orstg*', civpEnv: 'civp_orstg_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'STAGE' },
     ],
   },
 ];
@@ -252,7 +261,12 @@ const platformEnvClause: EnvClause = (env) =>
       : `env:${env.platformEnv[0]}`
     : undefined;
 
-const pciEnvClause: EnvClause = (env) => (env.pciEnv ? `env:${env.pciEnv}` : undefined);
+const pciEnvClause: EnvClause = (env) =>
+  env.pciEnv?.length
+    ? env.pciEnv.length > 1
+      ? `env:(${env.pciEnv.join(' OR ')})`
+      : `env:${env.pciEnv[0]}`
+    : undefined;
 
 /**
  * Paypal UI tags every log with `azure{cluster}-{agency}-{env}`, so its env tag
@@ -261,6 +275,18 @@ const pciEnvClause: EnvClause = (env) => (env.pciEnv ? `env:${env.pciEnv}` : und
  */
 const paypalUiEnvClause: EnvClause = (_env, agencyLower) => `env:azure*-${agencyLower}-*`;
 
+/**
+ * How a target can be narrowed to one agency.
+ *
+ * - `attributes` -- the log carries a real agency facet, so filter on the six
+ *   candidate fields. Facet values are case sensitive.
+ * - `freetext` -- the agency is present but only inside an unparsed message
+ *   body, so a bare `*AGENCY*` match is the only thing that works. Free-text
+ *   matching is case *insensitive*, unlike facets, so one casing suffices.
+ * - `none` -- the log carries no agency at all. Filtering excludes it entirely.
+ */
+export type AgencyScope = 'attributes' | 'freetext' | 'none';
+
 export interface ServiceTarget {
   /** Whether these logs are identified by `service:` or by `name:`. */
   field: 'service' | 'name';
@@ -268,11 +294,11 @@ export interface ServiceTarget {
   /** How to scope this target to an environment. */
   envClause: EnvClause;
   /**
-   * False when the logs carry no usable agency field. AND-ing the agency scope
-   * onto these excludes them completely, which is how the previous version
-   * silently dropped every event-log-service, ADS and ConfigStore line.
+   * `none` means AND-ing an agency filter would exclude the target completely,
+   * which is how an earlier version silently dropped every event-log-service
+   * and ADS line while still looking correct.
    */
-  agencyScoped: boolean;
+  agencyScope: AgencyScope;
   /** Surfaced to the user whenever this target is included. */
   note?: string;
 }
@@ -290,20 +316,46 @@ const paymentAdapter: ServiceTarget = {
   field: 'service',
   values: ['payment-adapter-service'],
   envClause: platformEnvClause,
-  agencyScoped: true,
+  agencyScope: 'attributes',
 };
 
 /**
- * CORRECTED service name: `configstore-service`, not `config-store-service`.
- * The hyphenated form returns zero logs over any window -- every Forte, PayPal
- * and SecurePay query built by the previous version carried a dead clause.
+ * ConfigStore.
+ *
+ * Two corrections here, the second reversing an earlier one of mine.
+ *
+ * 1. The service name is `configstore-service`, not `config-store-service`. The
+ *    hyphenated form returns zero logs over any window, so every Forte, PayPal
+ *    and SecurePay query built before this carried a dead clause.
+ *
+ * 2. It **does** carry the agency -- `SERV_PROV_CODE` is in the message, along
+ *    with `MODULE` (the request path), `GUID`, `CLIENT_ADDR` and the trace IDs.
+ *    An earlier note here claimed it carried no agency or environment at all.
+ *    That was wrong, and wrong for an avoidable reason: the conclusion came
+ *    from one sampled event that happened to be a Datadog tracer line rather
+ *    than an application line, and its attribute list was taken as the whole
+ *    service's shape.
+ *
+ * The catch is that the JSON arrives unparsed inside an Azure App Service
+ * console-log envelope -- only ~0.4% of lines have a promoted `@logger_name`,
+ * and `@SERV_PROV_CODE` is not a facet at all. So the agency is reachable by
+ * free text and nothing else, which is why this target uses 'freetext'.
+ *
+ * What the logs are actually good for: they record which provider
+ * configuration, action, template and response-mapping the adapter fetched --
+ * `/payments/urn:provider-id:paypal-ppcp/configuration`,
+ * `.../templates/paypal-registration-request.mustache`, and so on. That answers
+ * "did the adapter read its config, and for which agency", which is a real
+ * payment triage question.
  */
 const configStore: ServiceTarget = {
   field: 'service',
   values: ['configstore-service'],
+  // No env clause: the useful population is one staging App Service instance,
+  // so there is no environment to choose between. See the note.
   envClause: () => undefined,
-  agencyScoped: false,
-  note: 'ConfigStore logs carry no agency or environment tag, and only the staging instance (configstore-service-stg) ships to Datadog, so a production ConfigStore search will return nothing.',
+  agencyScope: 'freetext',
+  note: 'ConfigStore only ships useful logs from staging (configstore-service-stg): request-level detail of which provider configuration and templates the adapter fetched. The production PCI instances emit nothing but a 5-minute "Evicting cached configurations" heartbeat, so a production ConfigStore search is effectively empty. Its agency is matched by free text because the JSON payload is not parsed into facets.',
 };
 
 /** CONFIRMED: no @SERV_PROV_CODE and no agency attribute of any kind. */
@@ -311,7 +363,7 @@ const eventLog: ServiceTarget = {
   field: 'name',
   values: ['event-log-service'],
   envClause: platformEnvClause,
-  agencyScoped: false,
+  agencyScope: 'none',
   note: 'event-log-service logs carry no agency field, so they are returned for the whole environment rather than just this agency.',
 };
 
@@ -332,7 +384,8 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         field: 'service',
         values: ['"Paypal UI"'],
         envClause: paypalUiEnvClause,
-        agencyScoped: false,
+        // 'none' because the env clause above already pins the agency.
+        agencyScope: 'none',
         note: 'Paypal UI is scoped by its own env tag, which embeds the agency, so it needs no separate agency filter.',
       },
     ],
@@ -347,14 +400,26 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         field: 'service',
         values: ['app-pci-payment-adapter'],
         envClause: pciEnvClause,
-        agencyScoped: true,
-        note: 'SecurePay runs on a separate PCI cluster (env prod-pci / nonprod-pci). Nearly all current traffic is on the engineering cluster eng-arch-pci, which this search does not include.',
+        agencyScope: 'attributes',
+        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.7% over 30 days) is on the engineering cluster eng-arch-pci rather than prod-pci, so non-production searches include it. A PROD search covers prod-pci only and will look sparse by comparison -- that is accurate, not a missing filter.',
       },
       {
+        // The most informative target for SecurePay, and the reason this entry
+        // is worth keeping: it logs both reads and writes of the adapter
+        // configuration -- "Configuration details were requested for agency with
+        // name '{agency}'", "Updating configuration for adapter with id
+        // '{AGENCY}-PAYMENT-PAYMENT_ADAPTER_CONFIG_AA-...'" and
+        // "retrieving resource for provider with id
+        // 'urn:provider-id:payrix-multimerchant'".
+        //
+        // The agency appears as a bare name in the message and inside the
+        // adapter id, but the literal string SERV_PROV_CODE never does, so free
+        // text is the only thing that matches. Confirmed: @SERV_PROV_CODE is
+        // absent as a facet and a "SERV_PROV_CODE" text search returns zero.
         field: 'service',
         values: ['app-pci-configstore'],
         envClause: pciEnvClause,
-        agencyScoped: false,
+        agencyScope: 'freetext',
       },
       eventLog,
     ],
@@ -368,7 +433,7 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         field: 'service',
         values: ['acds', 'edms-handler'],
         envClause: civpEnvClause,
-        agencyScoped: true,
+        agencyScope: 'attributes',
       },
     ],
   },
@@ -381,7 +446,7 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         values: ['av.ads'],
         envClause: civpEnvClause,
         // CONFIRMED: @SERV_PROV_CODE exists on av.ads but is always empty.
-        agencyScoped: false,
+        agencyScope: 'none',
         note: 'ADS logs carry no populated agency field, so they are returned for the whole environment rather than just this agency.',
       },
     ],

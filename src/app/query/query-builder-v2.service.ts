@@ -224,7 +224,14 @@ export class QueryBuilderV2Service implements QueryEngine {
       unscopedByEnv.push(target.values.join(', ').replace(/"/g, ''));
     }
 
-    if (target.agencyScoped) clauses.push(this.agencyScopeForServices(agency));
+    if (target.agencyScope === 'attributes') {
+      clauses.push(this.agencyScopeForServices(agency));
+    } else if (target.agencyScope === 'freetext') {
+      // The agency is inside an unparsed message body, so there is no facet to
+      // filter on. Free-text matching is case insensitive -- unlike facets --
+      // so a single casing is enough here.
+      clauses.push(`*${agency.toUpperCase()}*`);
+    }
 
     return clauses.length > 1 ? `(${clauses.join(' AND ')})` : clauses[0];
   }
