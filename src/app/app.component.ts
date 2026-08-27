@@ -42,11 +42,14 @@ export class AppComponent {
   availableEnvironments: string[] = [];
 
   /**
-   * Defaults to running both engines so the corrected queries can be compared
-   * against the old ones before anyone commits to them. Switch to 'v2' once the
-   * new queries are trusted, or 'legacy' to fall back.
+   * Defaults to the corrected engine. Every clause it generates was run against
+   * live Datadog on 2026-08-27 and returns events, so the side-by-side compare
+   * that used to be the default now costs a click for no benefit. 'compare' is
+   * still selectable for spot-checking a query against the old behaviour, and
+   * 'legacy' remains a real fallback -- the characterization tests guarantee it
+   * reproduces the original queries exactly.
    */
-  engineMode: EngineMode = 'compare';
+  engineMode: EngineMode = 'v2';
 
   /** Populated on submit; drives the preview panel. */
   previews: QueryPreview[] = [];

@@ -94,12 +94,17 @@ describe('AppComponent engine modes', () => {
 
     // ------------------------------------------------------------ default mode
 
-    it('defaults to comparing both engines', () => {
-        expect(component.engineMode).toBe('compare');
-        expect(component.isCompareMode).toBe(true);
+    it('defaults to the corrected engine', () => {
+        // Switched from 'compare' once every v2 clause had been verified against
+        // live Datadog. Compare mode is still reachable from the selector.
+        expect(component.engineMode).toBe('v2');
+        expect(component.isCompareMode).toBe(false);
     });
 
+    // Compare mode is no longer the default, so these set it explicitly.
+
     it('compare mode produces one preview per engine', () => {
+        component.engineMode = 'compare';
         fillValidForm();
         submit();
 
@@ -108,12 +113,20 @@ describe('AppComponent engine modes', () => {
     });
 
     it('compare mode does NOT open a tab automatically', () => {
+        component.engineMode = 'compare';
         fillValidForm();
         submit();
         expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it('v2 mode, being the default, does open a tab on submit', () => {
+        fillValidForm();
+        submit();
+        expect(openSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('compare mode renders both queries with their own Open button', () => {
+        component.engineMode = 'compare';
         fillValidForm();
         submit();
 
@@ -127,6 +140,7 @@ describe('AppComponent engine modes', () => {
     });
 
     it('compare mode shows the actual query text for each engine', () => {
+        component.engineMode = 'compare';
         fillValidForm();
         submit();
 
@@ -148,6 +162,7 @@ describe('AppComponent engine modes', () => {
     });
 
     it('the two engines really differ for a payment service', () => {
+        component.engineMode = 'compare';
         fillValidForm({ services: ['Forte'] });
         submit();
 
@@ -184,6 +199,7 @@ describe('AppComponent engine modes', () => {
     });
 
     it('opening a preview from compare mode uses that engine URL', () => {
+        component.engineMode = 'compare';
         fillValidForm();
         submit();
 
@@ -192,6 +208,7 @@ describe('AppComponent engine modes', () => {
     });
 
     it('changing engine mode clears stale previews', () => {
+        component.engineMode = 'compare';
         fillValidForm();
         submit();
         expect(component.previews.length).toBe(2);

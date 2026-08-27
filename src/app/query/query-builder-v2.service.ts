@@ -218,7 +218,9 @@ export class QueryBuilderV2Service implements QueryEngine {
     const envClause = target.envClause(env, agencyLower);
     if (envClause) {
       clauses.push(envClause);
-    } else {
+    } else if (!target.note) {
+      // A target with its own note already explains why it cannot be scoped;
+      // adding the generic warning too just says the same thing twice.
       unscopedByEnv.push(target.values.join(', ').replace(/"/g, ''));
     }
 
