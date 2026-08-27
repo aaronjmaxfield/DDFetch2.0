@@ -6,29 +6,9 @@ import {
   findHost,
   HostDef,
   ServiceDef,
+  ServiceTarget,
 } from './environments.config';
 import { QueryEngine, QueryInput, QueryResult } from './query-input.model';
-
-/**
- * Whether to add `env:<tag>` to the containerised-service branch.
- *
- * OFF, based on evidence. A payment-adapter-service query that works returns
- * nothing once `env:prod` is added, so either those logs carry no `env` tag or
- * its values are not the tokens in environments.config.ts. Without it, service
- * results are scoped to the agency but span environments -- far better than the
- * original defect, which spanned every tenant.
- *
- * To re-enable: confirm the real tag with
- *
- *   SELECT env, COUNT(*) FROM dd.logs(
- *     columns => ARRAY['env'], filter => 'service:payment-adapter-service',
- *     from_timestamp => NOW() - INTERVAL '7 day', to_timestamp => NOW())
- *     AS (env VARCHAR)
- *   GROUP BY env
- *
- * then set the matching `envTag` values and flip this to true.
- */
-const SCOPE_SERVICES_BY_ENV = false;
 
 /**
  * Corrected query builder.
@@ -154,19 +134,34 @@ export class QueryBuilderV2Service implements QueryEngine {
       `@Properties.log.Agency:*${agency.toUpperCase()}*`,
     ];
 
-    if (host.capiRegionClause) {
-      parts.push(host.capiRegionClause);
-    } else {
-      warnings.push(
-        `CAPI logs cannot yet be pinned to the ${host.ui} region, so results may include CAPI logs from other regions. Set capiRegionClause in environments.config.ts once the region tag value is confirmed.`
-      );
-    }
+    // Region comes from the cluster's env: tag, not from EnvName -- the AU
+    // cluster emits PROD, NONPROD1, NONPROD2, STAGE, SUPP and TEST alongside
+    // AUPROD, so EnvName on its own cannot separate the regions.
+    if (host.capiRegionClause) parts.push(host.capiRegionClause);
+    if (host.capiRegionNote) warnings.push(host.capiRegionNote);
 
     return `(${parts.join(' AND ')})`;
   }
 
   // ---------------------------------------------------- containerised services
 
+  /**
+   * One sub-branch per service target, OR'd together.
+   *
+   * A single shared branch is not expressible. The selected services do not
+   * agree on either scope:
+   *
+   *   - Environment lives on a different tag per family. `env:civp_prod_azure`
+   *     is right for ACDS and returns nothing for payment-adapter-service,
+   *     where the value is a bare `prod`.
+   *   - Some targets carry no agency field at all. AND-ing the agency scope
+   *     across the whole branch silently excluded every event-log-service, ADS
+   *     and ConfigStore line -- the query looked correct and returned a subset.
+   *
+   * So each target contributes `(identity AND env? AND agency?)` on its own
+   * terms, and anything that cannot be scoped says so in a warning instead of
+   * emitting a clause that matches nothing.
+   */
   private buildServiceBranch(
     services: ServiceDef[],
     env: EnvironmentDef,
@@ -175,33 +170,66 @@ export class QueryBuilderV2Service implements QueryEngine {
   ): string {
     if (!services.length) return '';
 
-    const serviceValues = [...new Set(services.flatMap((s) => s.services))];
-    const nameValues = [...new Set(services.flatMap((s) => s.names ?? []))];
+    const lower = agency.toLowerCase();
+    const seen = new Set<string>();
+    const branches: string[] = [];
+    const unscopedByEnv: string[] = [];
+    const notes = new Set<string>();
 
-    // service:(a OR b) rather than service:a OR service:b -- the grouped form
-    // is Datadog's documented pattern for multiple values of one field.
-    const identity: string[] = [];
-    if (serviceValues.length) identity.push(`service:(${serviceValues.join(' OR ')})`);
-    if (nameValues.length) identity.push(`name:(${nameValues.join(' OR ')})`);
+    for (const target of services.flatMap((s) => s.targets)) {
+      // The same target object appears under several services (event-log-service
+      // is shared by all three payment providers), so dedupe on identity.
+      const key = `${target.field}:${target.values.join(',')}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
 
-    // The core fix: the service branch is scoped by agency instead of being a
-    // bare unqualified OR. Environment scoping is separate -- see below.
-    const agencyScope = this.agencyScopeForServices(agency);
-    const clauses = [`(${identity.join(' OR ')})`, agencyScope];
+      const branch = this.buildTargetBranch(target, env, agency, lower, unscopedByEnv);
+      if (branch) branches.push(branch);
+      if (target.note) notes.add(target.note);
+    }
 
-    if (SCOPE_SERVICES_BY_ENV) {
-      clauses.splice(1, 0, `env:${env.envTag}`);
-    } else {
+    if (unscopedByEnv.length) {
       warnings.push(
-        `Additional-service logs are scoped to ${agency.toUpperCase()} but not to ${env.ui}, so results may include other environments for this agency. Adding env: returned no results, so it is disabled until the real environment tag is identified.`
+        `No environment tag is known for ${this.listPhrase(unscopedByEnv)} in ${env.ui}, so those logs are returned across all environments. See the ASSUMPTION comments in environments.config.ts.`
       );
     }
+    for (const note of notes) warnings.push(note);
 
-    for (const s of services) {
-      if (s.note) warnings.push(s.note);
+    if (!branches.length) return '';
+    return branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];
+  }
+
+  private buildTargetBranch(
+    target: ServiceTarget,
+    env: EnvironmentDef,
+    agency: string,
+    agencyLower: string,
+    unscopedByEnv: string[]
+  ): string {
+    // service:(a OR b) rather than service:a OR service:b -- the grouped form
+    // is Datadog's documented pattern for multiple values of one field.
+    const identity =
+      target.values.length > 1
+        ? `${target.field}:(${target.values.join(' OR ')})`
+        : `${target.field}:${target.values[0]}`;
+
+    const clauses = [identity];
+
+    const envClause = target.envClause(env, agencyLower);
+    if (envClause) {
+      clauses.push(envClause);
+    } else {
+      unscopedByEnv.push(target.values.join(', ').replace(/"/g, ''));
     }
 
-    return `(${clauses.join(' AND ')})`;
+    if (target.agencyScoped) clauses.push(this.agencyScopeForServices(agency));
+
+    return clauses.length > 1 ? `(${clauses.join(' AND ')})` : clauses[0];
+  }
+
+  private listPhrase(items: string[]): string {
+    if (items.length === 1) return items[0];
+    return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
   }
 
   /**

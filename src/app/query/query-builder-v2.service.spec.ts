@@ -35,7 +35,16 @@ describe('QueryBuilderV2Service', () => {
         const { query } = v2.build(input({ additionalServices: ['Forte'] }));
 
         expect(query).toContain('@agencycode:AGCY');
-        expect(query).toContain('service:(payment-adapter-service OR config-store-service)');
+        expect(query).toContain('service:payment-adapter-service');
+    });
+
+    it('A1: uses the real ConfigStore service name', () => {
+        // Confirmed against live Datadog: `config-store-service` returns zero
+        // logs over any window. The real name has no hyphen after "config".
+        const { query } = v2.build(input({ additionalServices: ['Forte'] }));
+
+        expect(query).toContain('service:configstore-service');
+        expect(query).not.toContain('config-store-service');
     });
 
     it('A1: never emits an unscoped bare service branch', () => {
@@ -45,9 +54,23 @@ describe('QueryBuilderV2Service', () => {
 
         // The legacy defect: `OR (service:… OR name:… OR service:…)` with nothing else.
         expect(query).not.toContain('OR (service:payment-adapter-service OR');
-        // Every service mention must sit in a branch that also filters by agency.
-        const serviceBranch = query.slice(query.indexOf('service:(payment-adapter-service'));
-        expect(serviceBranch).toContain('@agencycode:AGCY');
+        // The payment-adapter sub-branch must carry both scopes.
+        const branch = query.slice(query.indexOf('service:payment-adapter-service'));
+        expect(branch).toContain('@agencycode:AGCY');
+        expect(branch).toContain('env:prod');
+    });
+
+    it('A1: does not AND the agency scope onto targets that carry no agency field', () => {
+        // Confirmed: event-log-service and ConfigStore have no agency attribute
+        // at all. AND-ing the agency scope across the whole branch excluded them
+        // entirely, so the query looked right and returned a subset.
+        const { query, warnings } = v2.build(
+            input({ applications: [], additionalServices: ['Forte'] })
+        );
+
+        const eventLogBranch = query.slice(query.indexOf('name:event-log-service'));
+        expect(eventLogBranch).not.toContain('@agencycode');
+        expect(warnings.some((w) => w.includes('event-log-service logs carry no agency field'))).toBe(true);
     });
 
     it('A1: scopes a services-only search (no application selected)', () => {
@@ -68,12 +91,32 @@ describe('QueryBuilderV2Service', () => {
         expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
     });
 
-    it('A1: omits env: from the service branch, which returned no results', () => {
-        const { query, warnings } = v2.build(input({ additionalServices: ['Forte'] }));
+    it('A1: scopes payment services by environment using the platform env tag', () => {
+        // The earlier attempt sent the @JNDI token (`prod`, `supp`, `auprod`)
+        // and returned nothing. Confirmed live: payment-adapter-service carries
+        // env values prod / stg / nonprod / qa / dev, with no region in them.
+        expect(v2.build(input({ additionalServices: ['Forte'] })).query).toContain('env:prod');
+        expect(
+            v2.build(input({ environment: 'STG', additionalServices: ['Forte'] })).query
+        ).toContain('env:stg');
+        expect(
+            v2.build(input({ environment: 'SUPP', additionalServices: ['Forte'] })).query
+        ).toContain('env:nonprod');
+    });
 
-        expect(query).not.toContain('env:prod');
-        // The resulting environment-scoping gap must be surfaced, not hidden.
-        expect(warnings.some((w) => w.includes('not to PROD'))).toBe(true);
+    it('A1: uses the regionalised non-prod env token where the service has one', () => {
+        // event-log-service splits non-prod by region; payment-adapter-service
+        // does not, so both tokens are OR'd.
+        const { query } = v2.build(
+            input({ host: 'AU', environment: 'SUPP', additionalServices: ['Forte'] })
+        );
+        expect(query).toContain('env:(au-nonprod OR nonprod)');
+    });
+
+    it('A1: scopes ACDS by the civp env tag, which is a different taxonomy', () => {
+        // ACDS and ADS carry `civp_{jndi}_azure`, not the bare platform token.
+        const { query } = v2.build(input({ additionalServices: ['ACDS'] }));
+        expect(query).toContain('env:civp_prod_azure');
     });
 
     it('A1: reproduces the shape of the query confirmed to work', () => {
@@ -81,9 +124,19 @@ describe('QueryBuilderV2Service', () => {
             input({ applications: [], additionalServices: ['Forte'] })
         );
 
-        // Working reference:
-        //   ((service:payment-adapter-service) AND (@agencycode:X OR ... OR @SERV_PROV_CODE:*X*))
-        expect(query).toMatch(/^\(\(service:\(payment-adapter-service.*\) AND \(@agencycode:AGCY .*\)\)$/);
+        // Working reference, now with the environment scope restored:
+        //   ((service:payment-adapter-service AND env:prod AND (@agencycode:X OR ...)) OR ...)
+        expect(query).toContain(
+            '(service:payment-adapter-service AND env:prod AND (@agencycode:AGCY'
+        );
+    });
+
+    it('A1: warns when a target has no known environment tag', () => {
+        // US TEST has no confirmed civp_ token, so ACDS cannot be pinned to it.
+        const { warnings } = v2.build(
+            input({ environment: 'TEST', applications: [], additionalServices: ['ACDS'] })
+        );
+        expect(warnings.some((w) => w.includes('No environment tag is known'))).toBe(true);
     });
 
     // -------------------------------------------------------- A2/A3: CAPI
@@ -107,9 +160,33 @@ describe('QueryBuilderV2Service', () => {
         expect(prod).not.toContain('NONPROD');
     });
 
-    it('A2: warns that CAPI is not yet pinned to a region', () => {
-        const { warnings } = v2.build(input({ applications: ['CAPI'] }));
-        expect(warnings.some((w) => w.includes('region'))).toBe(true);
+    it('A2: pins CAPI to the regions cluster', () => {
+        // Confirmed: CAPI region lives in the cluster's env: tag. EnvName cannot
+        // do this job -- the AU cluster also emits PROD, SUPP, TEST and NONPROD*.
+        const us = v2.build(input({ applications: ['CAPI'] })).query;
+        const au = v2.build(input({ host: 'AU', applications: ['CAPI'] })).query;
+
+        expect(us).toContain('env:(construct_prod_central_azure');
+        expect(au).toContain('env:construct_auprod_azure');
+        expect(us).not.toContain('construct_auprod_azure');
+    });
+
+    it('A2: corrects the CAPI environment names that did not exist', () => {
+        // US staging is STAGE, not STG. AU production is AUPROD, not PROD.
+        expect(v2.build(input({ environment: 'STG', applications: ['CAPI'] })).query).toContain(
+            '@Properties.log.EnvName:STAGE'
+        );
+        expect(
+            v2.build(input({ host: 'AU', environment: 'PROD', applications: ['CAPI'] })).query
+        ).toContain('@Properties.log.EnvName:AUPROD');
+    });
+
+    it('A2: warns where a region has no CAPI cluster of its own', () => {
+        const ca = v2.build(input({ host: 'CA', applications: ['CAPI'] }));
+        expect(ca.warnings.some((w) => w.includes('No Canadian CAPI cluster'))).toBe(true);
+
+        const or = v2.build(input({ host: 'OREGON', applications: ['CAPI'] }));
+        expect(or.warnings.some((w) => w.includes('emitted from the US clusters'))).toBe(true);
     });
 
     // ------------------------------------------------------- A4: US staging
@@ -156,22 +233,35 @@ describe('QueryBuilderV2Service', () => {
         expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(false);
     });
 
-    it('A6: OREGON TRAIN uses the entered agency, not a hardcoded tenant', () => {
+    it('A6: OREGON TRAIN is single-tenant, so the filename stays hardcoded', () => {
+        // Reversed on evidence. Parameterising this was wrong: the only ACA
+        // debug log in civp_oregon-train_azure is oregon-oregon-train-aca_debug.log.
+        // The legacy hardcoded literal was correct.
         const { query } = v2.build(
             input({ host: 'OREGON', environment: 'TRAIN', applications: ['Citizen Access'] })
         );
 
-        expect(query).not.toContain('oregon-oregon-train-aca');
-        expect(query).toContain('filename:*agcy-ortrain-aca*');
+        expect(query).toContain('filename:*oregon-oregon-train-aca*');
+        expect(query).not.toContain('agcy-ortrain');
     });
 
-    it('A7: OREGON STG follows the Oregon -aca filename convention', () => {
-        const { query } = v2.build(
+    it('A6: OREGON TRAIN searches the hosts that actually serve it', () => {
+        // Confirmed: oregon-oregon-train-aca_debug.log is emitted only by
+        // orsupp-aca-0/1. `host:*ortest*` alone matched one idle ACA node.
+        const { query } = v2.build(input({ host: 'OREGON', environment: 'TRAIN' }));
+        expect(query).toContain('(host:*orsupp* OR host:*ortest*)');
+    });
+
+    it('A7: OREGON STG collects no ACA logs, so it warns instead of filtering', () => {
+        // Reversed on evidence. civp_orstg_azure contains av.biz, iis,
+        // av.indexer and av.web only, and orstg-ACA-0 emits IIS access logs
+        // alone -- there is no ACA debug log to match on.
+        const { query, warnings } = v2.build(
             input({ host: 'OREGON', environment: 'STG', applications: ['Citizen Access'] })
         );
 
-        expect(query).toContain('filename:*agcy-orstg-aca*');
-        expect(query).not.toContain('filename:*agcy-stg*');
+        expect(query).not.toContain('filename:');
+        expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(true);
     });
 
     it('A6/A7: OREGON omits @JNDI entirely', () => {
@@ -236,9 +326,16 @@ describe('QueryBuilderV2Service', () => {
         expect(query).not.toContain('service:acds OR service:edms-handler');
     });
 
-    it('A12: groups name: values too', () => {
+    it('A12: emits a single value unbracketed', () => {
         const { query } = v2.build(input({ additionalServices: ['Forte'] }));
-        expect(query).toContain('name:(event-log-service)');
+        expect(query).toContain('name:event-log-service');
+        expect(query).not.toContain('name:(event-log-service)');
+    });
+
+    it('A12: does not repeat a target shared by several services', () => {
+        // event-log-service is listed under Forte, PayPal and SecurePay.
+        const { query } = v2.build(input({ additionalServices: ['Forte', 'ACDS'] }));
+        expect(query.match(/name:event-log-service/g)?.length).toBe(1);
     });
 
     // ---------------------------------------------------------- A13: SecurePay
