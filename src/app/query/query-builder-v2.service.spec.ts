@@ -31,6 +31,29 @@ describe('QueryBuilderV2Service', () => {
 
     // ------------------------------------------------- A1: service scoping
 
+    it('hides routine chatter by default, and can be turned off', () => {
+        // Default on, because the useful default is the readable one. Measured on
+        // a real Forte search: 1,817 lines to 574, retaining all 81 errors and
+        // all 116 warnings.
+        const on = v2.build(input({})).query;
+        expect(on).toContain('-"BatchJobLog"');
+        expect(on).toContain('-"Request URL:https"');
+
+        const off = v2.build(input({ hideRoutineChatter: false })).query;
+        expect(off).not.toContain('BatchJobLog');
+    });
+
+    it('never excludes a phrase that could match a real failure', () => {
+        // Datadog ignores punctuation in a quoted phrase, so `"Request URL:"`
+        // also matches `The Request URL /v4/settings got status 404` -- a real
+        // API failure, 22 of them in the measured window. The scheme-anchored
+        // form cannot, and counter-intuitively matches MORE noise: 178 lines
+        // against 23. Guard the specific form so it is not "simplified" back.
+        const { query } = v2.build(input({}));
+        expect(query).toContain('-"Request URL:https"');
+        expect(query).not.toContain('-"Request URL:"');
+    });
+
     it('A1: scopes additional services by agency', () => {
         const { query } = v2.build(input({ additionalServices: ['Forte'] }));
 

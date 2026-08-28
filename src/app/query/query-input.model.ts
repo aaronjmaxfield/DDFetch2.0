@@ -52,6 +52,18 @@ export interface QueryInput {
     option?: string;
     fields?: Record<string, string>;
   };
+  /**
+   * Hide routine chatter -- the log lines that appear in every search and cannot
+   * contain a failure. See noise.config.ts for the list and the evidence.
+   *
+   * Defaults to ON, which is a deliberate choice for the frontline audience: the
+   * useful default is the readable one, and the toggle is there for anyone who
+   * needs the raw stream. Measured effect on a real Forte search: 1,817 lines
+   * to 574, with all 81 errors and all 116 warnings retained.
+   *
+   * `undefined` means on. Pass `false` explicitly to get everything.
+   */
+  hideRoutineChatter?: boolean;
 }
 
 export interface QueryResult {

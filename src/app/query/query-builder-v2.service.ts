@@ -9,6 +9,7 @@ import {
   ServiceTarget,
 } from './environments.config';
 import { fieldsFor, findOption } from './scopes.config';
+import { routineChatterExclusion } from './noise.config';
 import { QueryEngine, QueryInput, QueryResult } from './query-input.model';
 
 /**
@@ -102,6 +103,16 @@ export class QueryBuilderV2Service implements QueryEngine {
 
     const params = this.formatAdditionalParams(input.additionalParams);
     if (params) query = `${query} AND ${params}`;
+
+    /*
+     * Routine chatter goes last, so it applies to everything above it including
+     * the scoped clauses. Default on -- see the note on QueryInput. Every
+     * pattern in the list was measured to remove zero errors and zero warnings.
+     */
+    if (input.hideRoutineChatter !== false) {
+      const exclusion = routineChatterExclusion();
+      if (exclusion) query = `${query} AND ${exclusion}`;
+    }
 
     return { query, warnings, errors };
   }
