@@ -90,29 +90,141 @@ export class QueryBuilderV2Service implements QueryEngine {
 
     const upper = agency.toUpperCase();
     const lower = agency.toLowerCase();
-    const identity: string[] = [`@SERV_PROV_CODE:*${upper}*`];
+    const identity: string[] = [];
 
-    if (host.usesJndi) {
-      // Facet values are case sensitive, so both casings are needed.
+    if (host.usesJndi && !env.jndiDead) {
+      // Facet values are case sensitive, so both casings are needed. Real values
+      // are {lower}-{lower} or {UPPER}-{UPPER}; no mixed pair was observed.
       identity.push(`@JNDI:*${lower}-${env.jndi}*`, `@JNDI:*${upper}-${env.jndi.toUpperCase()}*`);
-    }
 
-    if (wantsAca) {
-      if (env.acaFilename) {
-        identity.push(`filename:*${env.acaFilename(lower)}*`);
-        // @agencycode is a real log field and is present on ACA lines that
-        // carry no agency token in the message body, which the legacy
-        // free-text `*AGCY*` match missed entirely.
-        identity.push(`(service:*aca* AND @agencycode:${upper})`);
-        identity.push(`(service:*aca* AND *${upper}*)`);
-      } else {
+      /*
+       * @SERV_PROV_CODE is a FALLBACK here, not a peer of @JNDI, and that
+       * subordination is the single largest noise fix in this engine.
+       *
+       * As a peer it defeated the environment selection outright. Six US rows
+       * share `host:*mtsup*` and @JNDI is the only thing that separates them, so
+       * OR-ing in an environment-free @SERV_PROV_CODE clause put every
+       * neighbouring environment back in. Measured on a real agency at US SUPP:
+       * 64% of the result set was TEST logs, and switching NONPROD1 to NONPROD3
+       * changed the total by under 1%.
+       *
+       * It also caused cross-tenant bleed: the trailing wildcard means a
+       * two-character agency code is a mid-token substring of at least ten
+       * longer, unrelated codes, and 20% of that agency's results were other
+       * tenants'.
+       *
+       * Nothing is lost by demoting it. On US PROD, @SERV_PROV_CODE present
+       * while @JNDI is absent is 9,661 lines/day out of 135M estate-wide, and
+       * exactly 0 for a given agency -- so the `-@JNDI:*` guard keeps the whole
+       * population the arm was there for.
+       */
+      identity.push(`(@SERV_PROV_CODE:*${upper}* AND -@JNDI:*)`);
+      identity.push(`(@SERV_PROV_CODE:*${lower}* AND -@JNDI:*)`);
+    } else {
+      // Oregon has no @JNDI at all -- every value is EMPTY -- so the agency
+      // attribute is the only identity available and stands on its own. Both
+      // casings: values are overwhelmingly uppercase but not exclusively, and
+      // the biz branch used to emit only the upper form while the service
+      // branch emitted both.
+      identity.push(`@SERV_PROV_CODE:*${upper}*`, `@SERV_PROV_CODE:*${lower}*`);
+
+      if (host.usesJndi && env.jndiDead) {
         warnings.push(
-          `Citizen Access logs are not collected for ${host.ui} ${env.ui}, so the ACA filter was left out. Only Civic Platform logs will be returned.`
+          `No @JNDI environment exists for ${host.ui} ${env.ui} -- the token matches nothing in the log estate -- so results cannot be pinned to this environment and may include neighbouring ones.`
         );
       }
     }
 
-    return `((${identity.join(' OR ')}) AND ${env.hostClause})`;
+    /*
+     * The EMSE log carries NEITHER @SERV_PROV_CODE nor @JNDI, anywhere, in any
+     * environment, so without an arm of its own the whole of emse.log is
+     * invisible -- 14.9% of US PROD av.biz.
+     *
+     * But it is bulk. Measured on one agency at US SUPP over 6h it is 7,525
+     * lines, all `status:info`, against 1,052 for the rest of the biz branch
+     * combined. Including it unconditionally more than undid the noise work
+     * above, so it is off by default and on where it is the ONLY thing there.
+     *
+     * On Oregon PROD emse.log is the sole av.biz file -- `host:*orprd*
+     * service:av.biz @SERV_PROV_CODE:*` is 0 -- so without it a Civic Platform
+     * search returned index-builder lines and nothing else. Oregon STG is 46%
+     * emse. Those rows opt in via `emseIsPrimaryBizLog`.
+     *
+     * Free text rather than the "Agency ID:" phrase on purpose -- the phrase form
+     * drops the EMSE exception and blob-upload lines, which are the ones worth
+     * having, and on Oregon it returns 92x less. Free text is case insensitive
+     * here, so one casing suffices.
+     */
+    if (input.includeEmse || env.emseIsPrimaryBizLog) {
+      identity.push(`(filename:emse.log AND *${upper}*)`);
+    } else {
+      warnings.push(
+        'EMSE script logs are excluded: they carry neither @SERV_PROV_CODE nor @JNDI, so they need a free-text arm, and they are high-volume and info-only. Enable "Include EMSE" if you are chasing script behaviour.'
+      );
+    }
+
+    if (wantsAca) {
+      if (env.acaFilename) {
+        /*
+         * Anchored, not `*token*`. Every ACA log filename starts with the agency
+         * code, so the leading wildcard bought no recall and leaked other
+         * tenants: `*seattle-supp*` returned 7,811 lines that were all
+         * `portseattle-supp`, and `*port-prod*` matched northport, westport and
+         * sfport. Anchoring is byte-identical on the codes that were already
+         * unambiguous. `filename` is case sensitive and must be lowercase.
+         */
+        const acaToken = env.acaFilename(lower);
+        identity.push(`filename:${acaToken}*`);
+
+        /*
+         * These two are environment-agnostic on their own, and where a host
+         * clause is shared between rows they defeated the environment selection
+         * the same way the old @SERV_PROV_CODE peer did -- a US NONPROD1 search
+         * returned 7.5x the intended population. Constraining both to the
+         * environment's own filename shape fixes that without losing recall.
+         *
+         * The free-text arm earns its place despite the noise: it is the only
+         * route to the IIS access logs, which are 62.4% of all ACA volume and
+         * carry the tenant in neither `filename` nor `@agencycode`, and the only
+         * route to Oregon child agencies, whose ACA filenames are site names
+         * rather than agency codes.
+         *
+         * The shape is derived from the filename token, NOT from `env.jndi`.
+         * They diverge: Oregon TRAIN's jndi is `ortest` but its file is
+         * `oregon-oregon-train-aca`, and Oregon CONFIG's is `orconf` against
+         * `{agency}-oregon-config-aca`. Keying off jndi would have silently
+         * broken both.
+         */
+        const envShape = acaToken.startsWith(`${lower}-`)
+          ? `filename:*${acaToken.slice(lower.length)}*`
+          : `filename:${acaToken}*`;
+        identity.push(`(service:aca AND @agencycode:${upper} AND ${envShape})`);
+        identity.push(`(service:aca AND *${upper}* AND ${envShape})`);
+      } else {
+        warnings.push(
+          env.acaNote ??
+            `Citizen Access logs are not collected for ${host.ui} ${env.ui}, so the ACA filter was left out. Only Civic Platform logs will be returned.`
+        );
+      }
+    }
+
+    /*
+     * The search indexer is excluded by default.
+     *
+     * It is agency-tagged, so it passes the identity filter and lands in every
+     * biz-tier search -- and it dominates them. On a real AA PayPal payment
+     * investigation it was 2,445 of 4,285 returned lines, 57% of the result set,
+     * and it cannot contain the answer: every one of those lines was
+     * `status:info`, with zero warns and zero errors in the window.
+     *
+     * Excluded rather than removed, because a search or indexing investigation
+     * genuinely wants it -- see `includeIndexer` on QueryInput.
+     */
+    const scope = input.includeIndexer
+      ? env.hostClause
+      : `${env.hostClause} AND -service:av.indexer`;
+
+    return `((${identity.join(' OR ')}) AND ${scope})`;
   }
 
   // ---------------------------------------------------------------------- CAPI
@@ -230,7 +342,11 @@ export class QueryBuilderV2Service implements QueryEngine {
       // The agency is inside an unparsed message body, so there is no facet to
       // filter on. Free-text matching is case insensitive -- unlike facets --
       // so a single casing is enough here.
-      clauses.push(`*${agency.toUpperCase()}*`);
+      //
+      // A target can supply a precise token instead of the bare wildcard, which
+      // matters: `*{AGENCY}*` matches hex fragments inside trace IDs for short
+      // codes, and matches script names rather than tenants in event-log bodies.
+      clauses.push(target.freetextTerm ? target.freetextTerm(agencyLower, env) : `*${agency.toUpperCase()}*`);
     }
 
     return clauses.length > 1 ? `(${clauses.join(' AND ')})` : clauses[0];

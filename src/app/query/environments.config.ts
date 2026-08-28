@@ -90,6 +90,26 @@ export interface EnvironmentDef {
    * dropping the filter silently the way legacy did.
    */
   acaFilename?: (agencyLower: string) => string;
+  /** Overrides the generic "not collected" warning where the truth is subtler. */
+  acaNote?: string;
+  /**
+   * Set where the `jndi` token above matches nothing in the log estate.
+   *
+   * The token is kept rather than deleted so the row still documents what the
+   * environment is called, but the engine stops emitting a clause that provably
+   * returns zero and warns instead -- the same treatment `acaFilename:
+   * undefined` already gets.
+   */
+  jndiDead?: boolean;
+  /**
+   * Set where emse.log is the only agency-attributed biz log in the environment,
+   * which forces the EMSE arm on regardless of the user's preference.
+   *
+   * Oregon PROD is the extreme case: `host:*orprd* service:av.biz
+   * @SERV_PROV_CODE:*` is 0, and emse.log is the sole av.biz file, so without the
+   * arm a Civic Platform search returned index-builder lines and nothing else.
+   */
+  emseIsPrimaryBizLog?: boolean;
 }
 
 export interface HostDef {
@@ -117,6 +137,8 @@ const generic = (env: string) => (agencyLower: string) => `${agencyLower}-${env}
 const oregon = (env: string) => (agencyLower: string) => `${agencyLower}-or${env}-aca`;
 /** Oregon TRAIN is genuinely one tenant -- see the note on that row. */
 const literal = (value: string) => () => value;
+/** Oregon CONFIG breaks the `or{env}` pattern and spells the environment out. */
+const oregonConfig = (agencyLower: string) => `${agencyLower}-oregon-config-aca`;
 
 const usNonProdHost = 'host:*mtsup*';
 
@@ -134,7 +156,7 @@ export const HOSTS: HostDef[] = [
       { ui: 'SUPP', jndi: 'supp', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'SUPP', acaFilename: generic('supp') },
       // ASSUMPTION (civpEnv): no `civp_test_azure` tag exists. US TEST biz logs
       // may be one of the civp_int*_azure clusters; not resolved.
-      { ui: 'TEST', jndi: 'test', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST', acaFilename: generic('test') },
+      { ui: 'TEST', jndi: 'test', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST', acaFilename: generic('test') },
       {
         ui: 'STG',
         jndi: 'stg',
@@ -148,14 +170,23 @@ export const HOSTS: HostDef[] = [
         acaFilename: generic('stg'),
       },
       // ASSUMPTION (civpEnv) for all four: no civp_nonprod{n}_azure tag exists.
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: usNonProdHost, platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
-      // ASSUMPTION (civpEnv): `civp_civcon_azure` is a high-volume tag and is the
-      // only plausible match for CVCN, but the mapping was not confirmed.
-      // ASSUMPTION (capiEnvName): no CVCN EnvName was observed.
-      { ui: 'CVCN', jndi: 'cvcn', hostClause: 'host:*cvcn*', civpEnv: 'civp_civcon_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CVCN', acaFilename: generic('cvcn') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      // CORRECTED: the jndi token is `civcon`, not `cvcn`. `@JNDI:*cvcn*` matches
+      // ZERO events estate-wide; `@JNDI:*civcon*` matches 112,629,484 over 7d.
+      // For one real agency this was a 25x loss -- only the @SERV_PROV_CODE arm
+      // was returning anything.
+      // CONFIRMED (civpEnv): `env:civp_civcon_azure` is 16.2M/day and sits
+      // entirely inside `host:*cvcn*`, with nothing outside. Promoted from
+      // ASSUMPTION.
+      // CONFIRMED ABSENT (acaFilename): `service:aca host:*cvcn*` = 0 over 30d.
+      // The cluster logs 143M events of other services; the ACA tier does not
+      // exist in it. Removed so the warning fires.
+      // CONFIRMED ABSENT (capiEnvName): EnvName `CVCN` = 0 over the full 31-day
+      // retention window.
+      { ui: 'CVCN', jndi: 'civcon', hostClause: 'host:*cvcn*', civpEnv: 'civp_civcon_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CVCN' },
     ],
   },
   {
@@ -166,36 +197,49 @@ export const HOSTS: HostDef[] = [
     environments: [
       // CORRECTED: AU production CAPI is AUPROD. The AU cluster also emits PROD,
       // which is why the region clause above is doing the real work.
-      { ui: 'PROD', jndi: 'auprod', hostClause: 'host:*auprd*', civpEnv: 'civp_auprod_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'AUPROD', acaFilename: generic('auprod') },
+      { ui: 'PROD', jndi: 'auprod', hostClause: 'host:*auprd*', civpEnv: 'civp_auprod_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: '(PROD OR AUPROD)', acaFilename: generic('auprod') },
       { ui: 'SUPP', jndi: 'ausupp', hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'SUPP', acaFilename: generic('ausupp') },
       // ASSUMPTION (civpEnv): no civp_autest_azure tag exists.
-      { ui: 'TEST', jndi: 'autest', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST', acaFilename: generic('autest') },
+      // CONFIRMED DEAD, both tokens. @JNDI:*autest* = 0 estate-wide over 7d and
+      // ilename:*-autest-aca* = 0 over 30d. The row shares host:*ausup* with AU
+      // SUPP and NONPROD1-4, so it was silently serving THOSE environments'
+      // logs labelled as TEST -- a non-empty, plausible, wrong result.
+      { ui: 'TEST', jndi: 'autest', jndiDead: true, hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST' },
       // CORRECTED: AUSTG, not STG.
-      { ui: 'STG', jndi: 'austg', hostClause: 'host:*austg*', civpEnv: 'civp_austg_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'AUSTG', acaFilename: generic('austg') },
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: 'host:*ausup*', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      { ui: 'STG', jndi: 'austg', hostClause: 'host:*austg*', civpEnv: 'civp_austg_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: '(STAGE OR AUSTG)', acaFilename: generic('austg') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', jndiDead: true, hostClause: 'host:*ausup*', civpEnv: 'civp_ausupp_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
       // ASSUMPTION (capiEnvName): no CONV EnvName was observed.
-      { ui: 'CONV', jndi: 'auconv', hostClause: 'host:*auconv*', civpEnv: 'civp_auconv_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CONV', acaFilename: generic('auconv') },
+      // CONFIRMED ABSENT (acaFilename): AU CONV ships IIS access logs only --
+      // 100,813 over 7d, all filename:u_ex*, zero *aca_debug.log, zero
+      // *aca_error.log, zero @agencycode, and free text for every AU tenant
+      // returns 0. An ACA search here returned literally nothing, silently.
+      { ui: 'CONV', jndi: 'auconv', hostClause: 'host:*auconv*', civpEnv: 'civp_auconv_azure', platformEnv: ['au-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CONV', acaNote: 'AU CONV collects ACA access logs only (no debug or error log), so an ACA error cannot be traced here and the ACA filter was left out.' },
     ],
   },
   {
     ui: 'CA',
     usesJndi: true,
-    capiRegionClause: '',
+    // CORRECTED. There is genuinely no Canadian CAPI cluster and no PRODCA or
+    // STGCA EnvName -- but the conclusion drawn from that was wrong. Canadian
+    // CAPI runs on the shared US clusters: BARRIE, CGS, KINGSTON and NEWMARKET
+    // alone are 1,685,242 lines over 30d, all in construct_prod_central_azure.
+    // The old empty clause also let a CA search span the AU cluster.
+    capiRegionClause: usCapiClusters,
     capiRegionNote:
-      'No Canadian CAPI cluster was found in Datadog, and no PRODCA or STGCA EnvName value exists. A CA CAPI search is unlikely to return anything.',
+      'Canadian CAPI runs on the shared US-region Construct clusters -- there is no separate CA cluster -- so results are pinned by agency code rather than by region.',
     environments: [
       { ui: 'PROD', jndi: 'prodca', hostClause: 'host:*caprd*', civpEnv: 'civp_prodca_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: generic('prodca') },
       { ui: 'STG', jndi: 'stgca', hostClause: 'host:*castg*', civpEnv: 'civp_stgca_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'STAGE', acaFilename: generic('stgca') },
       // ASSUMPTION (civpEnv) for all four: `civp_suppca_azure` exists and is
       // busy, but there is no SUPP entry in this dropdown to map it to, and
       // guessing which NONPROD it corresponds to would break the others.
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: 'host:*casup*', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: 'host:*casup*', civpEnv: 'civp_suppca_azure', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: 'host:*casup*', civpEnv: 'civp_suppca_azure', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: 'host:*casup*', civpEnv: 'civp_suppca_azure', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', jndiDead: true, hostClause: 'host:*casup*', civpEnv: 'civp_suppca_azure', platformEnv: ['ca-nonprod', 'nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
     ],
   },
   {
@@ -207,7 +251,7 @@ export const HOSTS: HostDef[] = [
     capiRegionNote:
       'Oregon CAPI logs are emitted from the US clusters, and Oregon PROD shares the EnvName value PROD with US PROD, so an Oregon PROD CAPI search cannot be separated from a US one.',
     environments: [
-      { ui: 'PROD', jndi: 'orprd', hostClause: 'host:*orprd*', civpEnv: 'civp_orprd_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: oregon('prd') },
+      { ui: 'PROD', jndi: 'orprd', emseIsPrimaryBizLog: true, hostClause: 'host:*orprd*', civpEnv: 'civp_orprd_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: oregon('prd') },
       {
         ui: 'TRAIN',
         jndi: 'ortest',
@@ -229,12 +273,17 @@ export const HOSTS: HostDef[] = [
       // ACA logs are not collected in DEV/CONFIG -- acaFilename omitted so v2
       // warns instead of silently dropping the user's selection.
       { ui: 'DEV', jndi: 'ordev', hostClause: 'host:*ordev*', civpEnv: 'civp_oregon-dev_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'DEV' },
-      { ui: 'CONFIG', jndi: 'orconf', hostClause: 'host:*orconf*', civpEnv: 'civp_orconf_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CONFIG' },
+      // CORRECTED: Oregon CONFIG *does* collect ACA logs. The previous comment
+      // lumped it in with DEV and told the user they were not collected, which
+      // is the worst failure mode -- you stop looking. 21,478 events over 30d
+      // including real ACA stack traces (ReportBll.GetReportLinkProperty).
+      // Files: oregon-, or_mhods-, sws-, lane_co- prefixed `-oregon-config-aca`.
+      { ui: 'CONFIG', jndi: 'orconf', hostClause: 'host:*orconf*', civpEnv: 'civp_orconf_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'CONFIG', acaFilename: oregonConfig },
       // CORRECTED: acaFilename removed. Oregon STG ships no ACA logs at all --
       // civp_orstg_azure contains av.biz, iis, av.indexer and av.web only, and
       // orstg-ACA-0 emits nothing but IIS access logs. The previous
       // `{agency}-orstg-aca` value would always have returned zero.
-      { ui: 'STG', jndi: 'orstg', hostClause: 'host:*orstg*', civpEnv: 'civp_orstg_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'STAGE' },
+      { ui: 'STG', jndi: 'orstg', emseIsPrimaryBizLog: true, hostClause: 'host:*orstg*', civpEnv: 'civp_orstg_azure', platformEnv: ['stg'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'STAGE', acaNote: 'Oregon STG ships ACA access logs only, tagged service:iis on orstg-ACA-0 rather than service:aca. No ACA debug or error log is collected, so an ACA error cannot be traced here.' },
     ],
   },
 ];
@@ -273,7 +322,8 @@ const pciEnvClause: EnvClause = (env) =>
  * already carries the agency. That makes it the only service where one clause
  * covers both scopes.
  */
-const paypalUiEnvClause: EnvClause = (_env, agencyLower) => `env:azure*-${agencyLower}-*`;
+const paypalUiEnvClause: EnvClause = (env, agencyLower) =>
+  `env:azure*-${agencyLower}-${env.jndi}`;
 
 /**
  * How a target can be narrowed to one agency.
@@ -299,6 +349,14 @@ export interface ServiceTarget {
    * and ADS line while still looking correct.
    */
   agencyScope: AgencyScope;
+  /**
+   * Overrides the default `*{AGENCY}*` term used by `agencyScope: 'freetext'`.
+   *
+   * The bare wildcard is too blunt on some targets -- it matches hex fragments
+   * inside trace IDs for short agency codes, and matches script names rather
+   * than tenants in event-log bodies. Where a precise token exists, use it.
+   */
+  freetextTerm?: (agencyLower: string, env: EnvironmentDef) => string;
   /** Surfaced to the user whenever this target is included. */
   note?: string;
 }
@@ -358,13 +416,29 @@ const configStore: ServiceTarget = {
   note: 'ConfigStore only ships useful logs from staging (configstore-service-stg): request-level detail of which provider configuration and templates the adapter fetched. The production PCI instances emit nothing but a 5-minute "Evicting cached configurations" heartbeat, so a production ConfigStore search is effectively empty. Its agency is matched by free text because the JSON payload is not parsed into facets.',
 };
 
-/** CONFIRMED: no @SERV_PROV_CODE and no agency attribute of any kind. */
+/**
+ * CORRECTED, and it was the A22 mistake repeated on a second service. The old
+ * comment read "CONFIRMED: no @SERV_PROV_CODE and no agency attribute of any
+ * kind" -- true of the facets, false of the data. Roughly half these lines are
+ * Camel exchange bodies carrying `tenantId: urn:tenant-id:{agency}-{jndi}`,
+ * plus `traceId` (joinable to av.biz), `eventId`, `serviceHost` and `userId`.
+ *
+ * Leaving it unscoped was the single worst noise source in the tool: an AU PROD,
+ * CA PROD or any Oregon search emitted `name:event-log-service AND env:prod`,
+ * returning ~8.3M US-production lines over 30d, none of them the selected
+ * agency's -- there is no AU, CA or Oregon event-log instance at all.
+ *
+ * The `urn:tenant-id:` form is preferred over a bare `*{AGENCY}*` because the
+ * bare form matches anywhere in the body; it was confirmed to pull in unrelated
+ * tenants on script-name matches.
+ */
 const eventLog: ServiceTarget = {
   field: 'name',
   values: ['event-log-service'],
   envClause: platformEnvClause,
-  agencyScope: 'none',
-  note: 'event-log-service logs carry no agency field, so they are returned for the whole environment rather than just this agency.',
+  agencyScope: 'freetext',
+  freetextTerm: (agencyLower, env) => `"urn:tenant-id:${agencyLower}-${env.jndi}"`,
+  note: 'event-log-service is matched on the tenantId inside the message body, since it carries no agency facet. Roughly half its lines are AMQP connection noise with no tenant at all and are therefore not returned.',
 };
 
 export const ADDITIONAL_SERVICES: ServiceDef[] = [

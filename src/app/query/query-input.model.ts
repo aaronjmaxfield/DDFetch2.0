@@ -16,6 +16,28 @@ export interface QueryInput {
   additionalServices: string[];
   /** Raw text as typed, before any wildcarding. */
   additionalParams: string;
+  /**
+   * Include `av.indexer` in the biz-tier branch. Default false.
+   *
+   * The indexer is agency-tagged, so it passes the identity filter and used to
+   * dominate every biz search -- 57% of the lines returned for a real payment
+   * investigation, all of them `status:info`. It is worth having only when the
+   * search itself is about indexing.
+   *
+   * Optional so the legacy engine and existing callers are unaffected; both
+   * engines treat `undefined` as false.
+   */
+  includeIndexer?: boolean;
+  /**
+   * Include the EMSE log in the biz-tier branch. Default false.
+   *
+   * emse.log carries neither @SERV_PROV_CODE nor @JNDI, so it needs a free-text
+   * arm of its own or it is entirely invisible -- 14.9% of US PROD av.biz. It is
+   * also bulk: 7,525 info-only lines against 1,052 for the rest of the biz
+   * branch, measured on one agency over six hours. Off by default, and forced on
+   * for the rows where it is the only biz log that exists.
+   */
+  includeEmse?: boolean;
 }
 
 export interface QueryResult {

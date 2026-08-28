@@ -91,17 +91,32 @@ describe('QueryBuilderV2Service', () => {
         expect(branch).not.toContain('*agcy*');
     });
 
-    it('A1: does not AND the agency scope onto targets that carry no agency field', () => {
-        // Confirmed: event-log-service and ConfigStore have no agency attribute
-        // at all. AND-ing the agency scope across the whole branch excluded them
-        // entirely, so the query looked right and returned a subset.
-        const { query, warnings } = v2.build(
+    it('A1: does not AND the attribute agency scope onto targets that lack the facets', () => {
+        // ConfigStore has no agency facet, so the six-field attribute scope would
+        // exclude it entirely. It is matched by free text instead.
+        const { query } = v2.build(
             input({ applications: [], additionalServices: ['Forte'] })
         );
 
-        const eventLogBranch = query.slice(query.indexOf('name:event-log-service'));
-        expect(eventLogBranch).not.toContain('@agencycode');
-        expect(warnings.some((w) => w.includes('event-log-service logs carry no agency field'))).toBe(true);
+        const configStoreBranch = query.slice(query.indexOf('service:configstore-service'));
+        expect(configStoreBranch.slice(0, 80)).not.toContain('@agencycode');
+    });
+
+    it('A1: scopes event-log-service by tenantId rather than returning the environment', () => {
+        // Reversed on evidence. The old comment claimed "no agency attribute of
+        // any kind", which was true of the facets and false of the data: half
+        // these lines are Camel exchange bodies carrying
+        // `tenantId: urn:tenant-id:{agency}-{jndi}`. Left unscoped, an AU PROD,
+        // CA PROD or Oregon search returned ~8.3M US-production lines over 30d,
+        // none of them the selected agency's.
+        const { query } = v2.build(
+            input({ applications: [], additionalServices: ['Forte'] })
+        );
+
+        expect(query).toContain('name:event-log-service AND env:prod AND "urn:tenant-id:agcy-prod"');
+        // Not the bare wildcard -- it matches script names, not just tenants.
+        const branch = query.slice(query.indexOf('name:event-log-service'));
+        expect(branch).not.toContain('*AGCY*');
     });
 
     it('A1: scopes a services-only search (no application selected)', () => {
@@ -162,12 +177,18 @@ describe('QueryBuilderV2Service', () => {
         );
     });
 
-    it('A1: warns when a target has no known environment tag', () => {
-        // US TEST has no confirmed civp_ token, so ACDS cannot be pinned to it.
-        const { warnings } = v2.build(
-            input({ environment: 'TEST', applications: [], additionalServices: ['ACDS'] })
-        );
-        expect(warnings.some((w) => w.includes('No environment tag is known'))).toBe(true);
+    it('A1: fills the civp env for the shared non-prod clusters', () => {
+        // The civp env tag is CLUSTER level, not environment level: US TEST and
+        // NONPROD1-4 all live under civp_supp_azure, established by bridging
+        // through @JNDI, which IS per-environment. Previously left undefined, so
+        // an ACDS or ADS search there was emitted with no env clause at all --
+        // 14 of 29 rows returned the whole estate.
+        for (const environment of ['TEST', 'NONPROD1', 'NONPROD4']) {
+            const { query } = v2.build(
+                input({ environment, applications: [], additionalServices: ['ACDS'] })
+            );
+            expect(query, environment).toContain('env:civp_supp_azure');
+        }
     });
 
     // -------------------------------------------------------- A2/A3: CAPI
@@ -203,19 +224,37 @@ describe('QueryBuilderV2Service', () => {
     });
 
     it('A2: corrects the CAPI environment names that did not exist', () => {
-        // US staging is STAGE, not STG. AU production is AUPROD, not PROD.
+        // US staging is STAGE, not STG.
         expect(v2.build(input({ environment: 'STG', applications: ['CAPI'] })).query).toContain(
             '@Properties.log.EnvName:STAGE'
         );
-        expect(
-            v2.build(input({ host: 'AU', environment: 'PROD', applications: ['CAPI'] })).query
-        ).toContain('@Properties.log.EnvName:AUPROD');
     });
 
-    it('A2: warns where a region has no CAPI cluster of its own', () => {
-        const ca = v2.build(input({ host: 'CA', applications: ['CAPI'] }));
-        expect(ca.warnings.some((w) => w.includes('No Canadian CAPI cluster'))).toBe(true);
+    it('A2: AU production accepts PROD as well as AUPROD', () => {
+        // Reversed on evidence, and this reverses my own A21 conclusion. On the
+        // AU cluster, EnvName:AUPROD is ONE tenant (62,346 lines over 30d) while
+        // EnvName:PROD is seven tenants including the largest, at 146,670. So
+        // AUPROD is a tenant's self-declared label, not the platform value, and
+        // an AU PROD search returned zero for the biggest AU tenant.
+        //
+        // Safe because env:construct_auprod_azure does the region separation.
+        const au = v2.build(input({ host: 'AU', environment: 'PROD', applications: ['CAPI'] })).query;
+        expect(au).toContain('@Properties.log.EnvName:(PROD OR AUPROD)');
+        expect(au).toContain('env:construct_auprod_azure');
+    });
 
+    it('A2: CA CAPI is pinned to the US clusters, not left unscoped', () => {
+        // Reversed on evidence. The old note said a CA CAPI search was unlikely
+        // to return anything; Canadian tenants are 1,685,242 CAPI lines over 30d,
+        // all in construct_prod_central_azure. The empty region clause also let a
+        // CA search span the AU cluster.
+        const ca = v2.build(input({ host: 'CA', applications: ['CAPI'] }));
+        expect(ca.query).toContain('env:(construct_prod_central_azure');
+        expect(ca.query).not.toContain('construct_auprod_azure');
+        expect(ca.warnings.some((w) => w.includes('shared US-region Construct clusters'))).toBe(true);
+    });
+
+    it('A2: Oregon CAPI still warns that it cannot be separated from US', () => {
         const or = v2.build(input({ host: 'OREGON', applications: ['CAPI'] }));
         expect(or.warnings.some((w) => w.includes('emitted from the US clusters'))).toBe(true);
     });
@@ -250,11 +289,18 @@ describe('QueryBuilderV2Service', () => {
         expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
     });
 
-    it('A5: warns for OREGON CONFIG too', () => {
-        const { warnings } = v2.build(
+    it('A5: OREGON CONFIG does collect ACA logs and must not warn', () => {
+        // Reversed on evidence, and this was the worst failure mode in the
+        // branch: the user was affirmatively told the data did not exist, so
+        // they stop looking. 21,478 events over 30d including real ACA stack
+        // traces. CONFIG also breaks the `or{env}` naming pattern -- the files
+        // are `{agency}-oregon-config-aca`, not `{agency}-orconf-aca`.
+        const { query, warnings } = v2.build(
             input({ host: 'OREGON', environment: 'CONFIG', applications: ['Citizen Access'] })
         );
-        expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(true);
+
+        expect(query).toContain('filename:agcy-oregon-config-aca*');
+        expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(false);
     });
 
     it('A5: does not warn where ACA logs do exist', () => {
@@ -272,8 +318,25 @@ describe('QueryBuilderV2Service', () => {
             input({ host: 'OREGON', environment: 'TRAIN', applications: ['Citizen Access'] })
         );
 
-        expect(query).toContain('filename:*oregon-oregon-train-aca*');
+        // Anchored, not wrapped in wildcards -- see the A16 reversal.
+        expect(query).toContain('filename:oregon-oregon-train-aca*');
         expect(query).not.toContain('agcy-ortrain');
+    });
+
+    it('A16: the ACA filename is anchored, because the leading wildcard leaked tenants', () => {
+        // Reverses A16 for `filename` specifically. Every ACA log filename starts
+        // with the agency code, so the leading wildcard bought no recall:
+        // `filename:seattle-nonprod1*` and `*seattle-nonprod1*` return an
+        // identical 517,149 lines. It did leak neighbours -- `*seattle-supp*`
+        // returned 7,811 lines that were all `portseattle-supp`, and
+        // `*port-prod*` matched northport, westport and sfport.
+        //
+        // A16 still holds for @JNDI, where the code genuinely sits mid-token.
+        const { query } = v2.build(input({ applications: ['Citizen Access'] }));
+
+        expect(query).toContain('filename:agcy-prod*');
+        expect(query).not.toContain('filename:*agcy-prod*');
+        expect(query).toContain('@JNDI:*agcy-prod*');
     });
 
     it('A6: OREGON TRAIN searches the hosts that actually serve it', () => {
@@ -283,16 +346,17 @@ describe('QueryBuilderV2Service', () => {
         expect(query).toContain('(host:*orsupp* OR host:*ortest*)');
     });
 
-    it('A7: OREGON STG collects no ACA logs, so it warns instead of filtering', () => {
-        // Reversed on evidence. civp_orstg_azure contains av.biz, iis,
-        // av.indexer and av.web only, and orstg-ACA-0 emits IIS access logs
-        // alone -- there is no ACA debug log to match on.
+    it('A7: OREGON STG has no ACA debug log, and the warning now says why', () => {
+        // The reversal holds -- there is no ACA debug or error log to match on --
+        // but the old warning text overstated it. 441,371 IIS access-log events
+        // DO exist on orstg-ACA-0; they are just tagged service:iis rather than
+        // service:aca, so they are unreachable from this branch.
         const { query, warnings } = v2.build(
             input({ host: 'OREGON', environment: 'STG', applications: ['Citizen Access'] })
         );
 
-        expect(query).not.toContain('filename:');
-        expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(true);
+        expect(query).not.toContain('filename:agcy');
+        expect(warnings.some((w) => w.includes('access logs only'))).toBe(true);
     });
 
     it('A6/A7: OREGON omits @JNDI entirely', () => {
@@ -339,13 +403,34 @@ describe('QueryBuilderV2Service', () => {
 
     // -------------------------------------------------------- A10: agencycode
 
-    it('A10: matches ACA lines via @agencycode as well as free text', () => {
-        const { query } = v2.build(input({ applications: ['Citizen Access'] }));
+    it('A10: the @agencycode and free-text ACA arms are pinned to the environment', () => {
+        // Both arms are environment-agnostic on their own, and six US rows share
+        // host:*mtsup*, so OR-ing them in unconstrained defeated the environment
+        // selection: a US NONPROD1 search returned 7.5x the intended population,
+        // and switching NONPROD1 to NONPROD3 changed the total by under 1%.
+        //
+        // A10's original rationale was also wrong and is corrected in the audit:
+        // @agencycode does NOT reach agency-less lines. It is coextensive with
+        // the filename clause (5 events outside it, out of 281M) and returns 0%
+        // in all four Oregon environments. The free-text arm is what reaches the
+        // agency-less population -- 62.4% of ACA volume, all IIS access logs.
+        const { query } = v2.build(
+            input({ environment: 'NONPROD1', applications: ['Citizen Access'] })
+        );
 
-        expect(query).toContain('@agencycode:AGCY');
-        expect(query).toContain('filename:*agcy-prod*');
+        expect(query).toContain('service:aca AND @agencycode:AGCY AND filename:*-nonprod1*');
+        expect(query).toContain('service:aca AND *AGCY* AND filename:*-nonprod1*');
         // ACA needs the biz tier as well.
         expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
+    });
+
+    it('A10: service:aca is exact, not a wildcard', () => {
+        // `service:*aca*` also matched `acaol` (Public Portal / dotCMS, 4.9M
+        // lines) and `aca-stage-check` (Airflow). Neither reached results, but
+        // only because the host clause happened to exclude them.
+        const { query } = v2.build(input({ applications: ['Citizen Access'] }));
+        expect(query).not.toContain('service:*aca*');
+        expect(query).toContain('service:aca AND');
     });
 
     // ------------------------------------------------- A12: grouped OR values
