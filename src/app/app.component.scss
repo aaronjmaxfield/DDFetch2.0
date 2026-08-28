@@ -12,9 +12,14 @@
   /* The original title-bar backdrop. */
   --header-bg: lavender;
   --page-bg: #273841;
+  /* Card surface. Off-white rather than #fff: pure white against the #273841
+     backdrop is a jarring jump, and a faint lavender cast ties it to the brand.
+     Inputs stay pure white so they still read as inputs on top of it. */
+  --surface: #f7f6fa;
+  --field-bg: #ffffff;
   --ink: #1f2330;
   --ink-soft: #5b6072;
-  --line: #e6e4ec;
+  --line: #ddd9e6;
   --radius: 12px;
 }
 
@@ -63,7 +68,7 @@
   border: 3px solid transparent;
   border-radius: var(--radius);
   background:
-    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(var(--surface), var(--surface)) padding-box,
     linear-gradient(
         135deg,
         rgba(107, 27, 174, 0.9) 0%,
@@ -223,7 +228,10 @@ label {
 
 .form-control {
   border-radius: 8px;
-  border-color: var(--line);
+  /* Purple-tinted rather than neutral grey, so the field borders belong to the
+     palette instead of reading as leftover Bootstrap. */
+  border-color: var(--brand-line);
+  background-color: var(--field-bg);
   color: var(--ink);
   /* Same reason as .panel -- lets the date inputs shrink on narrow screens
      instead of forcing the card wider than the viewport. */
@@ -234,7 +242,103 @@ label {
 
   &:focus {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.16);
+    /* Strengthened: on a tinted surface a 16% ring was almost invisible. */
+    box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The open dropdown list
+   ---------------------------------------------------------------------------
+   By default the browser paints the select's popup itself, grey hover highlight
+   and square corners included, and no amount of CSS on the <select> reaches it.
+   `appearance: base-select` hands that rendering back to CSS -- Chrome 135+ and
+   this machine is on 151.
+
+   Kept behind @supports so anything without it silently falls back to the
+   native popup and the SVG caret above, rather than losing the arrow entirely.
+   The native <select> stays in the DOM either way, so every value read, change
+   handler and characterization test is untouched.
+   --------------------------------------------------------------------------- */
+@supports (appearance: base-select) {
+  select.form-control,
+  select.form-control::picker(select) {
+    appearance: base-select;
+  }
+
+  select.form-control {
+    /* base-select resets the control, so the field styling is re-stated. */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    min-height: 38px;
+    border: 1px solid var(--brand-line);
+    border-radius: 8px;
+    background: var(--field-bg);
+    background-image: none;
+    color: var(--ink);
+    font-size: 1rem;
+    line-height: 1.5;
+    text-align: left;
+
+    &:focus-visible {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
+    }
+  }
+
+  /* The disclosure arrow, now a real pseudo-element instead of a background. */
+  select.form-control::picker-icon {
+    color: var(--brand);
+    transition: transform 120ms ease;
+  }
+
+  select.form-control:open::picker-icon {
+    transform: rotate(180deg);
+  }
+
+  /* The popup itself. */
+  select.form-control::picker(select) {
+    border: 1px solid var(--brand-line);
+    border-radius: 10px;
+    background: var(--field-bg);
+    padding: 5px;
+    margin-top: 4px;
+    box-shadow:
+      0 4px 10px rgba(0, 0, 0, 0.14),
+      0 12px 30px rgba(0, 0, 0, 0.22);
+  }
+
+  select.form-control option {
+    display: flex;
+    align-items: center;
+    padding: 7px 10px;
+    border-radius: 6px;
+    color: var(--ink);
+    background: transparent;
+    cursor: pointer;
+
+    /* Chrome draws a checkmark column for the selected option; the label
+       already carries the state via colour, so it only adds noise. */
+    &::checkmark {
+      display: none;
+    }
+
+    &:hover,
+    &:focus {
+      background: var(--brand-tint);
+      color: var(--brand-dark);
+      outline: none;
+    }
+
+    &:checked {
+      background: var(--brand);
+      color: #fff;
+    }
   }
 }
 
