@@ -82,6 +82,28 @@ export const ROUTINE_CHATTER: NoisePattern[] = [
     phrase: '"Reading Regional Data from Web Service"',
     what: 'Regional data cache loads',
   },
+  {
+    /*
+     * A FACET negation, not a phrase -- and safe precisely because of that. A
+     * facet negation only excludes lines where the facet holds that value, so
+     * every line without the facet survives, and the biz tier is untouched.
+     *
+     * Measured 24h estate-wide: 1,351,248 lines, ALL `status:info`, no error or
+     * warn bucket at all. Over 30 days it is 10,935,188 lines with zero errors
+     * and zero warns, so the zero is structural rather than a lucky window.
+     *
+     * Worth having because it is a large pre-existing noise source nobody had
+     * noticed: many agencies' adapter names contain the word "Payment", so these
+     * config-dump lines match payment searches. It cuts 74% off COSA's payment
+     * scope, 52% off CFW and 51% off SBC.
+     *
+     * NOTE the facet spelling: `@logger.name` with a DOT on ACA. `@logger_name`
+     * with an underscore is the ConfigStore and ACDS spelling and returns zero
+     * buckets here. Free text reaches neither.
+     */
+    phrase: '@logger.name:EPaymentConfig',
+    what: 'ACA dumping the payment adapter configuration on every page load',
+  },
 ];
 
 /**
@@ -144,6 +166,22 @@ export const CHRONIC_PATTERNS: NoisePattern[] = [
      */
     phrase: '"BatchJobLog"',
     what: 'Batch distributor and worker chatter (this also hides batch job failures)',
+  },
+  {
+    /*
+     * Chronic rather than routine, because every one of these is `status:error`
+     * and the routine tier must not remove errors. Measured 24h estate-wide:
+     * 9,292 lines, 100% error, spread widely -- MILARA 638, FDNY 499, TREC 378,
+     * DALLASTX 364, DENVER 345, COSA 301.
+     *
+     * The message is `Can't get the correct information from cache['1316757'],
+     * add current data to cache.` -- an ACA cache miss that then repopulates the
+     * cache. Error severity, self-healing, and on MILARA it is 638 of that
+     * agency's 718 custom-adapter errors, so leaving it in buries whatever the
+     * user is actually looking for.
+     */
+    phrase: '"add current data to cache"',
+    what: 'ACA cache misses that then repopulate the cache (logged as errors)',
   },
 ];
 

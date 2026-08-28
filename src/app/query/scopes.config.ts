@@ -89,6 +89,21 @@ export interface ScopeOption {
   serviceUi?: string;
   /** Emitted as `(@PROVIDER:<urn> OR -@PROVIDER:*)` -- see the note above. */
   providerUrn?: string;
+  /**
+   * AND-ed onto the whole query when this option is selected, the same way
+   * `providerUrn` is.
+   *
+   * Custom payment adapters need this because they have neither a service of
+   * their own nor a `@PROVIDER` value. Measured 2026-08-28: `@PROVIDER` holds
+   * exactly six values estate-wide over 30 days -- forte, payrix-multimerchant,
+   * public-portal, paypal-ppcp, epayments3, invalid-test-provider -- and no
+   * custom adapter carries any of them. MILARA, SACCO, BIRMINGHAM and CFW each
+   * produce ZERO `payment-adapter-service` and ZERO `app-pci-payment-adapter`
+   * lines over 7 days, while Forte agency DELAND produces 7,795. The entire
+   * custom-adapter population lives on the ACA tier and is identified only by
+   * `@logger.name`.
+   */
+  extraClause?: string;
   fields?: ScopeField[];
 }
 
@@ -284,6 +299,63 @@ export const SCOPES: ScopeCategory[] = [
         serviceUi: 'SecurePay',
         // SecurePay is Payrix on the wire. Confirmed on the facet.
         providerUrn: 'urn:provider-id:payrix-multimerchant',
+      },
+      {
+        /*
+         * ONE broad option for all of them, and that is not a compromise -- it
+         * mirrors the implementation. There are 115+ distinct adapter names
+         * across 372 agencies, because the name is a free-text Standard Choice
+         * (`Paymentus_prod`, `GQ_PAYHUB_PAYMENTUS`, `VelosimoCyberSource_ProdIO`,
+         * `CEPAS_2_PRD`, `ButtePayGovAdapter`). Per-adapter options are
+         * infeasible, and a frontline user could not pick from such a list
+         * anyway. But Accela has only ONE generic code path for all of them, and
+         * the ACA logs expose it as a parsed facet.
+         *
+         * Measured 24h: MILARA 20,114 lines / 718 errors, COSA 9,002 / 307, CFW
+         * 5,163 / 187, BIRMINGHAM 215 / 4, SACCO 137 / 0. So the "broad option
+         * returns too much to be useful" failure mode does not occur. INDY is
+         * the outlier at 496,430 (CityBase, very high volume).
+         *
+         * HONEST CAVEAT: this is the generic ACA payment path, not a
+         * custom-adapter-only path. Custom adapters use it exclusively, but
+         * Forte touches the shared page loggers too -- pure-Forte LEECO returns
+         * 1,901 lines and 6 errors here. It narrows to the right surface; it
+         * does not prove the adapter is custom.
+         */
+        id: 'custom-adapter',
+        label: 'Custom / third-party adapter',
+        extraClause:
+          'service:aca @logger.name:(Payment_PaymentRedirect OR Payment_PaymentPostback OR PayRedirect OR Accela.ACA.Web.Payment.InternalPayment OR Accela.ACA.Web.Payment.PaymentHelper OR Accela.ACA.Web.Payment.PaymentStatusEvent OR Accela.ACA.Web.Cap.PaymentCompletion OR Accela.ACA.Web.Cap.PaymentResult OR Accela.ACA.Web.Component.Payment)',
+        fields: [
+          {
+            id: 'adapterName',
+            label: 'Adapter name',
+            placeholder: 'Paymentus_prod, CEPAS_2_PRD, TellerOnline_Prod',
+            /*
+             * The hint carries the discovery query because that is the single
+             * most useful thing found in the whole audit: nobody can guess a
+             * value from a 115-entry free-text list, and this answers it from
+             * the agency code alone. Verified returning `CEPAS_2_PRD` (MILARA),
+             * `OPCoBrandPlus` (SACCO), `Payment_Gateway` (COSA) and
+             * `TellerOnline_Prod` (BIRMINGHAM).
+             */
+            hint: 'Leave blank if you do not know it -- you still get the agency\'s payment traffic. To find it, search: service:aca @agencycode:{AGENCY} @logger.name:EPaymentConfig -- every line is the answer.',
+            clause: (v) => `*${v.trim()}*`,
+          },
+        ],
+      },
+      {
+        /*
+         * The one custom adapter that earns its own option. It is the only one
+         * with its own code classes, the only one named in a biz-tier line, the
+         * only route to back-office custom-adapter activity -- and it logs
+         * informational lines at ERROR severity, which is a live triage hazard
+         * for 17 agencies.
+         */
+        id: 'cobrandplus',
+        label: 'CoBrandPlus / Official Payments',
+        extraClause:
+          '(service:aca @logger.name:(Accela.ACA.Web.Payment.CoBrandPlusPayment OR Accela.ACA.Web.Payment.CoBrandPlusHandler OR Payment_PaymentRedirect OR Payment_PaymentPostback) OR (service:av.biz AND *Provider transaction details for*))',
       },
     ],
   },

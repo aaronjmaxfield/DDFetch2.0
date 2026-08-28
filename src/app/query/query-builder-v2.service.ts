@@ -107,6 +107,14 @@ export class QueryBuilderV2Service implements QueryEngine {
       query = `${query} AND (@PROVIDER:"${scopeOption.providerUrn}" OR -@PROVIDER:*)`;
     }
 
+    /*
+     * A custom adapter has no service and no @PROVIDER value to filter on, so
+     * the option supplies its own clause. See ScopeOption.extraClause.
+     */
+    if (scopeOption?.extraClause) {
+      query = `${query} AND ${scopeOption.extraClause}`;
+    }
+
     const params = this.formatAdditionalParams(input.additionalParams);
     if (params) query = `${query} AND ${params}`;
 
@@ -414,7 +422,22 @@ export class QueryBuilderV2Service implements QueryEngine {
      */
     if (category && !input.includeIndexer) scopeParts.push('-service:av.indexer');
 
-    if (category?.bizMarkers?.length && input.scopeBizTier !== false) {
+    /*
+     * An option carrying its own `extraClause` has already scoped the search
+     * precisely, by facet, so the category's heuristic free-text markers can
+     * only subtract from it.
+     *
+     * This is not theoretical. Measured on MILARA over 24h, the custom-adapter
+     * clause returns 20,144 lines and 720 errors; adding the payment markers on
+     * top took it to 10,988 lines and **8 errors**. The markers removed 712 real
+     * errors because ACA error messages frequently carry no payment word at all
+     * -- the same failure that hid `AccelaAdapter webhook not recieved` in
+     * production. A precise clause supersedes a crude one.
+     */
+    const preciseOption = findOption(input.scope?.category, input.scope?.option);
+    const optionScopesItself = !!preciseOption?.extraClause;
+
+    if (category?.bizMarkers?.length && input.scopeBizTier !== false && !optionScopesItself) {
       /*
        * Fields that currently hold a value can add markers of their own. That is
        * how the Construct trace ID reaches the biz-tier response line: 21.8M

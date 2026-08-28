@@ -865,6 +865,75 @@ describe('QueryBuilderV2Service', () => {
             expect(warnings.some((w) => w.includes("batch job failures"))).toBe(true);
         });
 
+        // ------------------------------------------- custom payment adapters
+
+        it("scopes a custom adapter, which has no service and no provider urn", () => {
+            // @PROVIDER holds six values estate-wide over 30d and no custom
+            // adapter carries any of them. MILARA, SACCO, BIRMINGHAM and CFW
+            // each produce zero payment-adapter-service and zero
+            // app-pci-payment-adapter lines over 7d, so neither existing
+            // mechanism can reach them. Measured 24h with this clause: MILARA
+            // 20,114 lines / 718 errors, COSA 9,002 / 307, CFW 5,163 / 187.
+            const { query } = v2.build(
+                input({ scope: { category: "payment", option: "custom-adapter" } })
+            );
+            expect(query).toContain("@logger.name:(Payment_PaymentRedirect");
+            // No provider filter, because there is no provider value to filter.
+            expect(query).not.toContain("@PROVIDER:");
+        });
+
+        it("does not layer the crude payment markers over a precise option clause", () => {
+            // Measured on MILARA over 24h: the custom-adapter clause alone
+            // returns 20,144 lines and 720 errors. Adding the payment markers on
+            // top took it to 10,988 lines and 8 errors -- 712 real errors gone,
+            // because ACA error messages often carry no payment word. Same
+            // failure that hid "AccelaAdapter webhook not recieved".
+            const precise = v2.build(
+                input({ scope: { category: "payment", option: "custom-adapter" } })
+            ).query;
+            expect(precise).not.toContain("*transaction-id*");
+
+            // A normal provider option still gets them.
+            const normal = v2.build(
+                input({ scope: { category: "payment", option: "forte" } })
+            ).query;
+            expect(normal).toContain("*transaction-id*");
+        });
+
+        it("gives CoBrandPlus its own option, including the biz-tier line", () => {
+            // The only custom adapter with its own code classes, the only one
+            // named in a biz-tier line, and it logs informational lines at ERROR
+            // severity -- a triage hazard for 17 agencies.
+            const { query } = v2.build(
+                input({ scope: { category: "payment", option: "cobrandplus" } })
+            );
+            expect(query).toContain("CoBrandPlusPayment");
+            expect(query).toContain("Provider transaction details for");
+        });
+
+        it("filters the adapter config dumps by facet, not by phrase", () => {
+            // A facet negation only excludes lines carrying that facet value, so
+            // the biz tier is untouched. 1,351,248 lines in 24h, all info; over
+            // 30d, 10,935,188 lines with zero errors and zero warns. The dot
+            // spelling matters -- @logger_name with an underscore is the
+            // ConfigStore spelling and matches nothing on ACA.
+            const { query } = v2.build(
+                input({ scope: { category: "payment", option: "custom-adapter" } })
+            );
+            expect(query).toContain("-@logger.name:EPaymentConfig");
+        });
+
+        it("puts the self-healing cache misses in the announced tier", () => {
+            // 9,292 lines in 24h, 100% status:error, and on MILARA they are 638
+            // of that agency's 718 custom-adapter errors. Real errors, so they
+            // cannot go in the routine tier, but they are never the answer.
+            const { query, warnings } = v2.build(
+                input({ scope: { category: "payment", option: "custom-adapter" } })
+            );
+            expect(query).toContain('-"add current data to cache"');
+            expect(warnings.some((w) => w.includes("cache misses"))).toBe(true);
+        });
+
         it("has no chatterException that does not match a real pattern", () => {
             // A typo in chatterExceptions silently does nothing, which would
             // look like the fix working.
