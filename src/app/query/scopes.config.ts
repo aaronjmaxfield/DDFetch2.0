@@ -11,15 +11,21 @@
  * transaction identifier, had nowhere to go except the free-text
  * "Additional Parameters" box.
  *
- * So: one dropdown for the area (Payment / Documents / Construct), a second for
- * the specific provider or service, and only then the fields that are worth
- * asking for in that context. Collapsed it is SMALLER than the block it
+ * So: one dropdown for the area (Payment, Documents, Records, Reports and so
+ * on), a second for the specific provider or service where one exists, and only
+ * then the fields that are worth asking for in that context. Collapsed it is SMALLER than the block it
  * replaces, which is what keeps the no-scrollbar goal reachable; expanded it is
  * only bigger when the user has deliberately asked for more.
  *
  * The fast path is untouched. Civic Platform, Citizen Access and Construct API
  * are still checkboxes at the top, so "just give me biz and ACA" is zero extra
  * clicks.
+ *
+ * There is deliberately no Construct scope CATEGORY. Construct lines live in
+ * `service:capi` and its siblings, which the Construct API checkbox reaches
+ * through `buildCapiBranch` -- a category's `bizMarkers` only narrow the BIZ
+ * tier, so the category did almost nothing visible while implying it did. The
+ * checkbox and its measured branch are untouched.
  *
  * -------------------------------------------------------------------------
  * EVERY CLAUSE HERE WAS MEASURED, NOT GUESSED
@@ -223,7 +229,11 @@ const providerTxId: ScopeField = {
 // Categories
 // ---------------------------------------------------------------------------
 
-export const SCOPES: ScopeCategory[] = [
+/*
+ * Declared in whatever order is convenient to read; exported alphabetically.
+ * Sorting at the source means the array and the dropdown cannot drift apart.
+ */
+const CATEGORIES: ScopeCategory[] = [
   {
     id: 'payment',
     label: 'Payment',
@@ -427,76 +437,6 @@ export const SCOPES: ScopeCategory[] = [
             placeholder: 'FileKey value from the download URL',
             hint: 'ADS logs the document key in the access-log query string.',
             clause: (v) => `*FileKey=${v.trim()}*`,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'construct',
-    label: 'Construct',
-    // Measured: apis/v4 41,577, restapis 22,137, RecordModel 14,847, INN 570.
-    // `*capi*` measured 262,391 and is deliberately EXCLUDED -- too broad, it
-    // matches unrelated substrings and would undo the scoping.
-    bizMarkers: ['*restapis*', '*apis/v4*', '*RecordModel*', '*INN*'],
-    options: [
-      {
-        id: 'capi',
-        label: 'Construct API',
-        fields: [
-          {
-            id: 'endpoint',
-            label: 'Endpoint',
-            placeholder: '/apis/v4/documents',
-            hint: 'Matched against the logged MethodName, e.g. "GET /apis/v4/documents/2573836". Only narrows Construct lines -- the other tiers do not record the endpoint.',
-            /*
-             * MATCH-OR-ABSENT, and it must stay that way.
-             *
-             * `@Properties.log.MethodName` exists ONLY in the Construct family
-             * -- measured 24h: capi 30,848,809, coauth 4,815,074, cdocapi
-             * 906,259, cadmin, cuser, cdeveloper, and nothing else anywhere. A
-             * scope-field clause is AND-ed onto the WHOLE query, so the bare
-             * facet form deleted every other tier: LEECO's 2,280,288 biz lines
-             * in scope went to ZERO.
-             *
-             * Same defect as the custom-adapter clause forcing `service:aca`.
-             * The rule: a clause that is AND-ed globally must never reference
-             * something only one tier carries without an escape for the rest.
-             */
-            clause: (v) =>
-              `(@Properties.log.MethodName:*${v.trim()}* OR -@Properties.log.MethodName:*)`,
-            warn: () =>
-              'The endpoint only filters Construct API lines. Civic Platform and Citizen Access do not record it, so their lines are returned unfiltered -- use the Trace ID field to tie them to one request.',
-          },
-          {
-            id: 'traceId',
-            label: 'Trace ID',
-            placeholder: '260828163457811-2e67f1d8',
-            hint: 'The only handle on CAPI error lines, which carry no agency or environment. Also joins the trace to what the back end returned.',
-            /*
-             * Free text, not the facet. The trace ID reaches the biz tier but
-             * only as message text -- the facet form finds nothing there. So
-             * this clause is correct as it stands and must not be "improved"
-             * into `@Properties.log.TraceId:`.
-             */
-            clause: (v) => `*${v.trim()}*`,
-            /*
-             * The biz tier is where a frontline user sees what the API actually
-             * returned: `The response size is 50 Bytes ... TraceId is: {id}.
-             * Response code is 200`. Two independent gates were destroying that
-             * join, and either one alone looked like the tool working.
-             *
-             * Measured over 24h: 21,850,112 biz lines carry "TraceId is". Of
-             * those, 40 survive the Construct markers, and 0 survive the
-             * response-size chatter exclusion. End to end on a real trace, the
-             * result was 4 lines cut to 3 with the biz line -- the answer --
-             * removed.
-             *
-             * Both are attached to the field rather than the category because
-             * they are only affordable once a trace ID has narrowed the search.
-             */
-            bizMarkers: ['"TraceId is"'],
-            chatterExceptions: ['"The response size is"'],
           },
         ],
       },
@@ -833,6 +773,11 @@ export const SCOPES: ScopeCategory[] = [
     options: [],
   },
 ];
+
+/** Alphabetical by label, because that is the order the dropdown shows. */
+export const SCOPES: ScopeCategory[] = [...CATEGORIES].sort((a, b) =>
+  a.label.localeCompare(b.label)
+);
 
 export function findCategory(id: string | undefined): ScopeCategory | undefined {
   return id ? SCOPES.find((c) => c.id === id) : undefined;

@@ -454,7 +454,16 @@
           <input type="checkbox" id="adsCheckbox" name="additionalServices[]" value="ADS" />
         </div>
 
-        <!-- Query engine selector -->
+        <!--
+          Query engine selector. Hidden, not deleted.
+
+          It was only ever a testing affordance for comparing v2 against the
+          legacy builder, and it is confusing on a form aimed at frontline users
+          -- nobody outside this project knows what "New (v2)" means. The legacy
+          engine and its characterization tests stay, so flipping
+          `showEngineSelector` back to true restores it for a comparison run.
+        -->
+        @if (showEngineSelector) {
         <div class="row form-row">
           <div class="col-md-12">
             <label class="section-label">Query Engine</label>
@@ -492,6 +501,7 @@
             </div>
           </div>
         </div>
+        }
 
         <div class="app-actions">
           <button

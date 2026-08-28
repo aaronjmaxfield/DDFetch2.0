@@ -98,6 +98,26 @@ $brand-line: rgba(107, 27, 174, 0.2);
     box-shadow:
       0 4px 10px rgba(0, 0, 0, 0.14),
       0 12px 30px rgba(0, 0, 0, 0.22);
+
+    // ALWAYS OPEN DOWNWARDS.
+    //
+    // The picker is an anchor-positioned popover, and by default the browser
+    // flips it above the control when it decides there is not enough room below
+    // -- which is why the lower dropdowns on the form were opening upwards while
+    // the upper ones opened down. Inconsistent direction is worse than a
+    // slightly cramped list, because the option under the cursor moves.
+    //
+    // `position-area` pins it below and `position-try-fallbacks: none` stops the
+    // flip. Without the fallbacks line the position-area is only a preference
+    // and the browser still flips.
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: none;
+
+    // Because flipping is now disabled, a long list near the bottom of the
+    // viewport would run off the screen. Cap it and scroll instead -- the
+    // timeframe list is the one that needs this.
+    max-height: 45vh;
+    overflow-y: auto;
   }
 
   select.form-control option {

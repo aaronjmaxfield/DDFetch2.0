@@ -58,6 +58,15 @@ export class AppComponent {
    */
   engineMode: EngineMode = 'v2';
 
+  /**
+   * Whether to show the engine selector at all. Off: it is a testing affordance,
+   * and "New (v2)" means nothing to the frontline users this form is for.
+   *
+   * The legacy engine, `compare` mode and the characterization tests all remain,
+   * so setting this to true restores a side-by-side comparison run.
+   */
+  showEngineSelector = false;
+
   /** Populated on submit; drives the preview panel. */
   previews: QueryPreview[] = [];
 

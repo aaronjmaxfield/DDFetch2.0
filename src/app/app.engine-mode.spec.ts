@@ -324,7 +324,18 @@ describe('AppComponent engine modes', () => {
 
     // ------------------------------------------------------------ new controls
 
-    it('exposes the engine selector and SecurePay checkbox in the template', () => {
+    it('hides the engine selector by default', () => {
+        // Hidden as of 2026-08-28: it is a testing affordance, and "New (v2)"
+        // means nothing to the frontline users the form is for. The engine, the
+        // compare mode and these tests all remain.
+        expect(component.showEngineSelector).toBe(false);
+        expect(el('engineV2')).toBeFalsy();
+        expect(el('securePayCheckbox')).toBeTruthy();
+    });
+
+    it('exposes the engine selector and SecurePay checkbox when enabled', () => {
+        component.showEngineSelector = true;
+        fixture.detectChanges();
         expect(el('engineCompare')).toBeTruthy();
         expect(el('engineV2')).toBeTruthy();
         expect(el('engineLegacy')).toBeTruthy();
@@ -332,6 +343,8 @@ describe('AppComponent engine modes', () => {
     });
 
     it('the engine radios reflect and drive engineMode', () => {
+        component.showEngineSelector = true;
+        fixture.detectChanges();
         const v2Radio = el('engineV2') as HTMLInputElement;
         v2Radio.dispatchEvent(new Event('change'));
         fixture.detectChanges();

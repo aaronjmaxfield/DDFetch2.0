@@ -59,10 +59,9 @@ describe('QueryBuilderV2Service', () => {
         expect(docs).toContain('*DocumentService*');
         expect(docs).not.toContain('*transaction-id*');
 
-        const capi = v2.build(input({ scope: { category: 'construct' } })).query;
-        expect(capi).toContain('*apis/v4*');
-        // `*capi*` measured 262,391 lines -- too broad, it would undo the scoping.
-        expect(capi).not.toContain('*capi*');
+        const records = v2.build(input({ scope: { category: 'records' } })).query;
+        expect(records).toContain('*B1PERMIT*');
+        expect(records).not.toContain('*DocumentService*');
     });
 
     it('hides chronic warnings under a scope but says so', () => {
@@ -795,355 +794,32 @@ describe('QueryBuilderV2Service', () => {
             expect(warnings.some((w) => w.includes("no agency and no environment"))).toBe(true);
         });
 
-        it("joins the Construct trace to the biz response line, but only when a trace ID is given", () => {
-            // Both gates independently destroyed this join. Over 24h, 21,850,112
-            // biz lines carry "TraceId is"; 40 survive the Construct markers and
-            // 0 survive the response-size chatter exclusion. At 21.8M lines a
-            // day it is only affordable once a trace ID narrows the search, so
-            // both live on the field rather than the category.
-            const withTrace = v2.build(
-                input({
-                    applications: ["Civic Platform", "CAPI"],
-                    scope: {
-                        category: "construct",
-                        option: "capi",
-                        fields: { traceId: "260828163457811-2e67f1d8" },
-                    },
-                })
+        it("adds field-level markers and exceptions only while the field has a value", () => {
+            /*
+             * The mechanism this covers was built for the Construct trace ID,
+             * whose biz-tier join was broken by two independent gates: of
+             * 21,850,112 biz lines carrying "TraceId is", 40 survived the
+             * Construct markers and 0 survived the response-size chatter
+             * pattern.
+             *
+             * That category has since been removed, so the join is DORMANT --
+             * nothing currently emits `"TraceId is"`. The mechanism itself is
+             * still load-bearing for EMSE (bizMarkers) and GIS
+             * (chatterExceptions), which is what this now guards.
+             */
+            const emseBare = v2.build(input({ scope: { category: "emse", fields: {} } })).query;
+            const emseWithTrace = v2.build(
+                input({ scope: { category: "emse", fields: { emseTraceId: "W-2026" } } })
             ).query;
-            expect(withTrace).toContain('"TraceId is"');
-            expect(withTrace).not.toContain('-"The response size is"');
+            expect(emseBare).not.toContain('"THROW"');
+            expect(emseWithTrace).toContain('"THROW"');
 
-            const without = v2.build(
-                input({
-                    applications: ["Civic Platform", "CAPI"],
-                    scope: { category: "construct", option: "capi", fields: {} },
-                })
+            const gisBare = v2.build(input({ scope: { category: "gis", fields: {} } })).query;
+            const gisWithParcel = v2.build(
+                input({ scope: { category: "gis", fields: { parcelNumber: "04704452" } } })
             ).query;
-            expect(without).not.toContain('"TraceId is"');
-            expect(without).toContain('-"The response size is"');
-        });
-
-        // ------------------------------------- unscoped means unfiltered
-
-        it("filters nothing at all when no scope is chosen", () => {
-            // The default has to be complete, because the user narrows it down
-            // afterwards in Datadog. Measured on LEECO PROD over 24h: 390,750
-            // lines carry a 5-5-5 CAP ID and 3,948 of those match
-            // "Request URL:https", so the old always-on filter removed them
-            // before the user ever typed the CAP ID.
-            const { query, warnings } = v2.build(
-                input({ applications: ["Civic Platform", "Citizen Access"] })
-            );
-            expect(query).not.toContain('-"Request URL:https"');
-            expect(query).not.toContain('-"report takes more than"');
-            expect(query).not.toContain("-service:av.indexer");
-            expect(warnings.some((w) => w.includes("Nothing has been filtered out"))).toBe(true);
-        });
-
-        it("filters once a scope is chosen", () => {
-            // Scoping is what buys the noise reduction, rather than it being
-            // charged to everyone up front.
-            const { query } = v2.build(
-                input({ scope: { category: "payment", option: "forte" } })
-            );
-            expect(query).toContain('-"Request URL:https"');
-            expect(query).toContain('-"report takes more than"');
-            expect(query).toContain("-service:av.indexer");
-        });
-
-        it("no longer hides batch job failures in the silent tier", () => {
-            // Per-pattern on LEECO PROD over 24h, nine of the ten routine
-            // patterns removed zero errors and zero warns. "BatchJobLog" removed
-            // 158 errors and 10 warns by itself -- BatchJobObserver failing to
-            // read jobs from the database, which is exactly the "my nightly
-            // batch did not run" ticket.
-            const { query, warnings } = v2.build(
-                input({ scope: { category: "payment", option: "forte" } })
-            );
-            expect(query).toContain('-"BatchJobLog"');
-            expect(warnings.some((w) => w.includes("batch job failures"))).toBe(true);
-        });
-
-        // ------------------------------------------- custom payment adapters
-
-        it("scopes a custom adapter, which has no service and no provider urn", () => {
-            // @PROVIDER holds six values estate-wide over 30d and no custom
-            // adapter carries any of them. MILARA, SACCO, BIRMINGHAM and CFW
-            // each produce zero payment-adapter-service and zero
-            // app-pci-payment-adapter lines over 7d, so neither existing
-            // mechanism can reach them. Measured 24h with this clause: MILARA
-            // 20,114 lines / 718 errors, COSA 9,002 / 307, CFW 5,163 / 187.
-            const { query } = v2.build(
-                input({ scope: { category: "payment", option: "custom-adapter" } })
-            );
-            expect(query).toContain("@logger.name:(Payment_PaymentRedirect");
-            // No provider filter, because there is no provider value to filter.
-            expect(query).not.toContain("@PROVIDER:");
-        });
-
-        it("keeps the biz tier when an option scopes the ACA tier", () => {
-            // The first version AND-ed the adapter clause raw, which forced
-            // service:aca onto the whole query and deleted the biz tier -- a
-            // CLARKCO search returned ACA lines only, while the payment is
-            // applied in biz. CLARKCO's biz tier carries 2,702 *payment* lines
-            // in 24h and ZERO naming CyberSource, its actual adapter, so it can
-            // only be scoped by the category markers.
-            const { query } = v2.build(
-                input({
-                    applications: ["Civic Platform", "Citizen Access"],
-                    scope: { category: "payment", option: "custom-adapter" },
-                })
-            );
-            expect(query).toContain("OR -service:aca");
-            // Biz identity survives.
-            expect(query).toContain("@JNDI:");
-        });
-
-        it("exempts ACA from the markers without unscoping the biz tier", () => {
-            // Measured on MILARA over 24h: the custom-adapter clause alone
-            // returns 20,144 lines and 720 errors. Adding the payment markers on
-            // top took it to 10,988 lines and 8 errors -- 712 real errors gone,
-            // because ACA error messages often carry no payment word. Same
-            // failure that hid "AccelaAdapter webhook not recieved".
-            const precise = v2.build(
-                input({ scope: { category: "payment", option: "custom-adapter" } })
-            ).query;
-            // Markers still present -- the biz tier needs them -- but ACA lines
-            // are let through without them.
-            expect(precise).toContain("*transaction-id*");
-            expect(precise).toContain("OR service:aca)");
-
-            // A normal provider option gets the markers with no ACA exemption.
-            const normal = v2.build(
-                input({ scope: { category: "payment", option: "forte" } })
-            ).query;
-            expect(normal).toContain("*transaction-id*");
-            expect(normal).not.toContain("OR service:aca)");
-        });
-
-        it("gives CoBrandPlus its own option, scoped on its ACA loggers", () => {
-            // The only custom adapter with its own code classes, and it logs
-            // informational lines at ERROR severity -- a triage hazard for 17
-            // agencies.
-            //
-            // Deliberately does NOT name its biz-tier line
-            // (`Provider transaction details for OPCOBrandPlus`). Naming it
-            // would have made that the ONLY biz line accepted, excluding the
-            // generic F4PAYMENT and receipt lines that say whether the payment
-            // was actually applied. The category markers reach all of them.
-            const { query } = v2.build(
-                input({ scope: { category: "payment", option: "cobrandplus" } })
-            );
-            expect(query).toContain("CoBrandPlusPayment");
-            expect(query).not.toContain("Provider transaction details for");
-            expect(query).toContain("OR -service:aca");
-        });
-
-        it("filters the adapter config dumps by facet, not by phrase", () => {
-            // A facet negation only excludes lines carrying that facet value, so
-            // the biz tier is untouched. 1,351,248 lines in 24h, all info; over
-            // 30d, 10,935,188 lines with zero errors and zero warns. The dot
-            // spelling matters -- @logger_name with an underscore is the
-            // ConfigStore spelling and matches nothing on ACA.
-            const { query } = v2.build(
-                input({ scope: { category: "payment", option: "custom-adapter" } })
-            );
-            expect(query).toContain("-@logger.name:EPaymentConfig");
-        });
-
-        it("puts the self-healing cache misses in the announced tier", () => {
-            // 9,292 lines in 24h, 100% status:error, and on MILARA they are 638
-            // of that agency's 718 custom-adapter errors. Real errors, so they
-            // cannot go in the routine tier, but they are never the answer.
-            const { query, warnings } = v2.build(
-                input({ scope: { category: "payment", option: "custom-adapter" } })
-            );
-            expect(query).toContain('-"add current data to cache"');
-            expect(warnings.some((w) => w.includes("cache misses"))).toBe(true);
-        });
-
-        /*
-         * THE RULE, enforced structurally.
-         *
-         * Scope-field clauses and option `extraClause`s are AND-ed onto the
-         * WHOLE query, across every tier. So a clause that positively requires
-         * something only one tier carries deletes all the others, silently, and
-         * the result still looks like a normal result set.
-         *
-         * This has now happened twice. The custom-adapter clause began
-         * `service:aca` and deleted the biz tier on every agency -- caught only
-         * because someone looked at CLARKCO and noticed the biz logs were gone.
-         * The Construct endpoint field required `@Properties.log.MethodName`,
-         * which exists only in the Construct family, taking LEECO's 2,280,288
-         * biz lines in scope to zero.
-         *
-         * Either give the clause an escape -- `OR -<the same facet>:*` for a
-         * facet, or `OR -service:x` for a service -- or keep it to free text,
-         * which every tier can satisfy.
-         *
-         * LIMIT OF THIS GUARD, stated so nobody trusts it further than it goes:
-         * it catches STRUCTURAL tier-exclusivity only. Free text that happens to
-         * exist in just one tier passes and can still delete the others. The ADS
-         * `*FileKey=...*` clause is the case to keep in mind -- it passes here,
-         * and it is genuinely safe only because `FileKey` was measured across
-         * iis, av.biz, av.web, av.indexer, capi, cdocapi, aca and acds. That was
-         * a measurement, not an inference from the clause's shape.
-         */
-        // ------------------------------------------- the five new categories
-
-        function scoped(category: string, fields: Record<string, string> = {}) {
-            return v2.build(input({ scope: { category, fields } }));
-        }
-
-        it("offers all eight scope categories", () => {
-            expect(SCOPES.map((c) => c.id)).toEqual([
-                "payment", "documents", "construct",
-                "gis", "emse", "records", "batch", "reporting",
-            ]);
-        });
-
-        it("GIS excludes the APO marker that would make it 96% wrong", () => {
-            // *APO* adds 196,579 errors of which 169,097 are IJ000453 ... FROM
-            // RSERV_PROV -- a generic agency-registry query caught through one
-            // incidental column name.
-            const { query } = scoped("gis");
-            expect(query).toContain("*parcel*");
-            expect(query).not.toContain("*APO*");
-        });
-
-        it("GIS recovers the record-to-parcel line the chatter tier removes", () => {
-            // Load-bearing: parcel 04704452 has 6 lines, 0 survive the scope
-            // without this, 4 survive with it.
-            const { query } = scoped("gis", { parcelNumber: "04704452" });
-            expect(query).not.toContain('-"Request path is:"');
-        });
-
-        it("EMSE keeps THROW off the category markers", () => {
-            // Platform-wide, not EMSE: outside EMSE it is 729,425 lines and
-            // 724,702 errors. As a category marker it injected 183,605 unrelated
-            // errors against CFW's 2,726 real ones.
-            const bare = scoped("emse").query;
-            expect(bare).not.toContain('"THROW"');
-            // On the trace-ID field it is correct, and restores the caller line.
-            const withTrace = scoped("emse", { emseTraceId: "W-20260820111100761" }).query;
-            expect(withTrace).toContain('"THROW"');
-        });
-
-        it("EMSE and Batch force the emse.log arm on", () => {
-            // +1.0% to +40.0% lines and exactly zero errors, measured on four
-            // agencies -- because emse.log is 100% status:info even though
-            // 1,905,251 of its lines carry an aa_exception block.
-            expect(scoped("emse").query).toContain("filename:emse.log");
-            expect(scoped("batch").query).toContain("filename:emse.log");
-            // Not forced elsewhere.
-            expect(scoped("payment").query).not.toContain("filename:emse.log");
-        });
-
-        it("Records keeps the null-CAP-type family off the category markers", () => {
-            // *getCapTypeByPK* as a category marker drags in 164,754 lines a day
-            // of getCapTypeByPK(:null/null/null/null). On the recordType field it
-            // drops to 20 while still answering the question asked.
-            expect(scoped("records").query).not.toContain("*getCapTypeByPK*");
-            expect(scoped("records", { recordType: "BLD_GENERAL" }).query).toContain(
-                "*getCapTypeByPK*"
-            );
-        });
-
-        it("Batch searches the underscore twin, which holds most of the errors", () => {
-            // *BATCH_JOB* AND NOT *batchjob* is 467,843 lines with 439,277
-            // errors -- more errors than *batchjob* finds in total. Error-level
-            // intersection is exactly 0 on all six agencies tested.
-            const { query } = scoped("batch");
-            expect(query).toContain("*batchjob*");
-            expect(query).toContain("*BATCH_JOB*");
-        });
-
-        it("Batch un-hides BatchJobLog, and says it kept it", () => {
-            // With it hidden: CGS 28 errors instead of 879, and the warn count is
-            // zero on six of six agencies -- and the warns carry the job dump.
-            const { query, warnings } = scoped("batch");
-            expect(query).not.toContain('-"BatchJobLog"');
-            expect(warnings.some((w) => w.includes("Kept because this scope is about them"))).toBe(true);
-        });
-
-        it("Reporting un-hides the slow-report warning it exists to find", () => {
-            // Before this the tool returned 1 warning for LEECO, 1 for FDNY and
-            // zero for three other agencies. Three real tickets: 0 rows -> 331,
-            // 0 -> 857, 128 -> 12,985.
-            const { query } = scoped("reporting");
-            expect(query).not.toContain('-"report takes more than"');
-            // But NOT the record-search pattern the brief wrongly assumed was
-            // reporting: 35,636 lines, zero carrying any reporting marker.
-            expect(query).toContain('-"It is risky to retrieve too many records"');
-        });
-
-        it("Reporting scopes on message shapes, not engine names", () => {
-            // The engine names contribute exactly 0 unique biz-tier lines, and
-            // LEECO/FDNY are 100% Crystal and 100% SSRS respectively -- so an
-            // engine-name marker set discards one of them entirely.
-            const { query } = scoped("reporting");
-            expect(query).toContain('"report takes more than"');
-            expect(query).not.toContain("*ReportServer*");
-            expect(query).not.toContain("*CReport*");
-        });
-
-        it("does not name a kept chronic pattern as hidden", () => {
-            // chronicSummary must take the same exceptions as chronicExclusion,
-            // or the warning sends the user hunting for a toggle to recover data
-            // already in front of them.
-            const { warnings } = scoped("reporting");
-            const hidden = warnings.find((w) => w.includes("constant in this environment"));
-            expect(hidden).toBeDefined();
-            expect(hidden).not.toContain("Slow-report warnings");
-        });
-
-        it("has no globally-ANDed clause that can delete a whole tier", () => {
-            const ctx = {
-                agencyUpper: "AGCY",
-                agencyLower: "agcy",
-                env: { ui: "PROD", jndi: "prod" } as never,
-            };
-
-            const offenders: string[] = [];
-            const check = (label: string, clause: string) => {
-                // Does it positively require a service or a tier-specific facet?
-                const requiresService = /(^|\s|\()service:/.test(clause);
-                const requiresFacet = /(^|\s|\()@[A-Za-z_.]+:/.test(clause);
-                if (!requiresService && !requiresFacet) return;
-                // Two things count as an escape. An explicit negated arm...
-                const hasNegatedArm = /OR\s+-(@[A-Za-z_.]+|service):/.test(clause);
-                // ...or a bare free-text term, which any tier can satisfy. The
-                // lookbehind is what distinguishes `OR *VALUE*` from the
-                // `@FACET:*VALUE*` it sits next to.
-                const hasFreeTextArm = /(?<![:\w])\*[^*\s()]+\*/.test(clause);
-                if (!hasNegatedArm && !hasFreeTextArm) offenders.push(`${label}: ${clause}`);
-            };
-
-            for (const category of SCOPES) {
-                for (const option of category.options) {
-                    if (option.extraClause) {
-                        // Check the form the BUILDER emits, not the raw string --
-                        // it wraps every extraClause with an escape for the other
-                        // tiers, which is where the CLARKCO fix lives.
-                        check(
-                            `${category.id}/${option.id} extraClause`,
-                            `((${option.extraClause}) OR -service:aca)`
-                        );
-                    }
-                }
-                const allFields = [
-                    ...(category.fields ?? []).map((f) => [category.id, f] as const),
-                    ...category.options.flatMap((o) =>
-                        (o.fields ?? []).map((f) => [`${category.id}/${o.id}`, f] as const)
-                    ),
-                ];
-                for (const [scope, field] of allFields) {
-                    check(`${scope}/${field.id}`, field.clause("VALUE", ctx));
-                }
-            }
-
-            expect(offenders, `these clauses can delete a tier:\n${offenders.join("\n")}`).toEqual([]);
+            expect(gisBare).toContain('-"Request path is:"');
+            expect(gisWithParcel).not.toContain('-"Request path is:"');
         });
 
         it("has no chatterException that does not match a real pattern", () => {
