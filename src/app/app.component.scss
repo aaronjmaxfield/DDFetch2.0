@@ -78,7 +78,7 @@
         rgba(85, 21, 138, 0.85) 100%
       )
       border-box;
-  padding: 16px 20px 14px;
+  padding: 20px 24px 18px;
   /* Heavier, and biased down and to the right the way the original
      `5px 5px 10px #888` was -- but layered, so it reads as weight rather than
      as a hard grey edge. Deepened again now that it falls on a dark backdrop. */
@@ -122,11 +122,11 @@
   /* An explicit band height, because the logo is sized from it rather than the
      other way round. Left to itself the 320px artwork dictated the height and
      the header became a 325px tall billboard. */
-  height: 64px;
+  height: 76px;
   /* No right or vertical padding: the logo runs to the band edge, and overflow
      clips it to the corner radius. */
   padding: 0 0 0 18px;
-  margin-bottom: 12px;
+  margin-bottom: 18px;
   overflow: hidden;
 
   h1 {
@@ -184,14 +184,16 @@
 /* ---------------------------------------------------------------------------
    Form rhythm
    --------------------------------------------------------------------------- */
-/* Tightened hard, in service of the no-scrollbar goal. Rows whose columns carry
-   Bootstrap's mb-1 already have 4px of their own, so this only tops it up. */
+/* Row rhythm. Deliberately NOT squeezed to the minimum: an earlier pass pushed
+   these to 5px/2px chasing the no-scrollbar goal and the form stopped being
+   comfortable to read. Legibility wins; the height is bought back structurally
+   instead, by pairing fields onto shared rows. */
 .form-row {
-  margin-bottom: 5px;
+  margin-bottom: 10px;
 }
 
 .form-row-tight {
-  margin-bottom: 2px;
+  margin-bottom: 5px;
 }
 
 /* Bootstrap's row gutters pull content outside the panel padding. Neutralised
@@ -206,7 +208,7 @@
 label {
   font-size: 13px;
   color: var(--ink-soft);
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 /* Section and group headings carry the emphasis instead of every label. */
@@ -225,7 +227,7 @@ label {
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink);
-  margin-bottom: 3px;
+  margin-bottom: 6px;
 }
 
 .form-control {
@@ -295,7 +297,7 @@ input[type='datetime-local'] {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 1px;
+  margin-bottom: 5px;
 
   input {
     width: 16px;
@@ -321,8 +323,8 @@ input[type='datetime-local'] {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 18px;
+  padding-top: 14px;
   border-top: 1px solid var(--line);
 }
 
@@ -468,10 +470,10 @@ input[type='datetime-local'] {
    right; on a laptop it is the difference between fitting and not, so it gives
    way rather than squeezing the form further.
    --------------------------------------------------------------------------- */
-@media (max-height: 780px) {
+@media (max-height: 800px) {
   .page {
-    padding-top: 8px;
-    padding-bottom: 8px;
+    padding-top: 12px;
+    padding-bottom: 12px;
   }
 }
 

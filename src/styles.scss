@@ -129,4 +129,23 @@ $brand-line: rgba(107, 27, 174, 0.2);
     background: $brand;
     color: #fff;
   }
+
+  // The placeholder row is not a choice, so it does not wear the selected
+  // colour. Before this, opening Host or Environment for the first time showed
+  // --SELECT-- filled solid purple, which read as "this is your answer" when
+  // nothing had been picked yet. It still highlights on hover, so it stays
+  // obviously clickable -- you can deliberately go back to it.
+  //
+  // Placed after the :checked rule on purpose; equal specificity, so source
+  // order is what makes it win.
+  select.form-control option[value="--SELECT--"]:checked {
+    background: transparent;
+    color: #5b6072;
+  }
+
+  select.form-control option[value="--SELECT--"]:hover,
+  select.form-control option[value="--SELECT--"]:focus {
+    background: $brand-tint;
+    color: $brand-dark;
+  }
 }
