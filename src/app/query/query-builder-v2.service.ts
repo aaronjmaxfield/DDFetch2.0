@@ -111,11 +111,37 @@ export class QueryBuilderV2Service implements QueryEngine {
     if (params) query = `${query} AND ${params}`;
 
     /*
-     * Routine chatter goes last, so it applies to everything above it including
-     * the scoped clauses. Default on -- see the note on QueryInput. Every
-     * pattern in the list was measured to remove zero errors and zero warnings.
+     * ------------------------------------------------------------------------
+     * NOISE REDUCTION IS WHAT SCOPING BUYS YOU
+     * ------------------------------------------------------------------------
+     * Nothing is filtered out until the user says what they are investigating.
+     * An unscoped search returns everything for the agency and environment, on
+     * purpose, so that narrowing afterwards in Datadog -- by CAP ID, by
+     * transaction ID, by a phrase from a ticket -- cannot silently miss a line
+     * we removed first.
+     *
+     * That is not a theoretical risk. Measured on LEECO PROD over 24 hours,
+     * 390,750 lines carry a 5-5-5 CAP ID, and 3,948 of them match
+     * `"Request URL:https"` -- so the old always-on filter would have removed
+     * them before the user ever typed the CAP ID. The Construct case is worse:
+     * of 21,850,112 biz lines carrying `TraceId is`, zero survived the
+     * response-size pattern, and that line is the one saying what the API
+     * returned.
+     *
+     * Volume is the price. On that agency the unscoped result is 3,006,120
+     * lines instead of 1,744,225. That is the right trade: Datadog can page
+     * through three million lines, and a wrong conclusion drawn from a filtered
+     * set cannot be undone.
      */
-    if (input.hideRoutineChatter !== false) {
+    const scopedCategory = findCategory(input.scope?.category);
+    const isScoped = !!scopedCategory;
+
+    // Unscoped defaults to no filtering, but an explicit `true` still forces it.
+    const filterChatter = isScoped
+      ? input.hideRoutineChatter !== false
+      : input.hideRoutineChatter === true;
+
+    if (filterChatter) {
       // The selected scope may depend on a chatter pattern as evidence -- a
       // payment investigation needs the sequence-allocation lines that
       // `lSeqRemaining` otherwise removes.
@@ -132,9 +158,10 @@ export class QueryBuilderV2Service implements QueryEngine {
      * Chronic conditions are real warnings, so hiding them is announced rather
      * than silent. On the busiest Forte agency the slow-report warning alone is
      * ~60,000 lines in 24 hours and 99.6% of everything left after scoping --
-     * it buries the payment failures it sits next to.
+     * it buries the payment failures it sits next to. Also scope-gated: an
+     * unscoped search is meant to be complete.
      */
-    if (input.showChronic !== true) {
+    if (isScoped && input.showChronic !== true) {
       const exclusion = chronicExclusion();
       if (exclusion) {
         query = `${query} AND ${exclusion}`;
@@ -142,6 +169,12 @@ export class QueryBuilderV2Service implements QueryEngine {
           `Hidden because they are constant in this environment rather than related to your search: ${chronicSummary()}. These are real warnings -- turn on "Show chronic warnings" to include them.`
         );
       }
+    }
+
+    if (!isScoped) {
+      warnings.push(
+        'Nothing has been filtered out. This is everything logged for this agency and environment, which is deliberate -- narrow it down in Datadog and you can be certain nothing was removed before you looked. Once you know what you are investigating, pick a Scope to cut the routine noise.'
+      );
     }
 
     return { query, warnings, errors };
@@ -359,7 +392,6 @@ export class QueryBuilderV2Service implements QueryEngine {
      * genuinely wants it -- see `includeIndexer` on QueryInput.
      */
     const scopeParts = [env.hostClause];
-    if (!input.includeIndexer) scopeParts.push('-service:av.indexer');
 
     /*
      * Restrict the biz tier to the chosen category. This is the largest single
@@ -374,6 +406,14 @@ export class QueryBuilderV2Service implements QueryEngine {
      * dependable shape -- the opposite rule applies to the exclusions.
      */
     const category = findCategory(input.scope?.category);
+
+    /*
+     * Also scope-gated. The indexer is a whole service, not chatter, and
+     * dropping it unscoped would contradict the promise that an unscoped search
+     * is complete -- it is 129,600 lines and 20 errors a day on LEECO.
+     */
+    if (category && !input.includeIndexer) scopeParts.push('-service:av.indexer');
+
     if (category?.bizMarkers?.length && input.scopeBizTier !== false) {
       /*
        * Fields that currently hold a value can add markers of their own. That is

@@ -71,10 +71,6 @@ export const ROUTINE_CHATTER: NoisePattern[] = [
     what: 'Config-manager request plumbing',
   },
   {
-    phrase: '"BatchJobLog"',
-    what: 'Batch distributor and worker heartbeats',
-  },
-  {
     phrase: '"lSeqRemaining"',
     what: 'Database sequence-number bookkeeping',
   },
@@ -128,6 +124,26 @@ export const CHRONIC_PATTERNS: NoisePattern[] = [
      */
     phrase: '"EDMS Config="',
     what: 'EDMS configuration dumps on page load (these include some real errors)',
+  },
+  {
+    /*
+     * Promoted out of ROUTINE_CHATTER on 2026-08-28, and it was the whole of
+     * that tier's error loss. Measured per pattern on LEECO PROD over 24h: nine
+     * of the ten removed exactly zero errors and zero warns, and this one
+     * removed 158 errors and 10 warns on its own.
+     *
+     * They are not heartbeats. They are
+     * `BatchJobObserver/handleJobs(): Exception occurs when try to get local
+     * server jobs from database` and `updateLocalServerTtl(): Exception occurs
+     * when update TTL`, arriving in bursts -- database failures stopping batch
+     * jobs from being scheduled. "My nightly batch did not run" is a real
+     * ticket, and this pattern silently answered it with nothing.
+     *
+     * Note this was measured clean on the agency it was first added against.
+     * That is the recurring lesson: one agency is not evidence.
+     */
+    phrase: '"BatchJobLog"',
+    what: 'Batch distributor and worker chatter (this also hides batch job failures)',
   },
 ];
 

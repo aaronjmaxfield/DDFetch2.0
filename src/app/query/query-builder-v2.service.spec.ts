@@ -65,15 +65,16 @@ describe('QueryBuilderV2Service', () => {
         expect(capi).not.toContain('*capi*');
     });
 
-    it('hides chronic warnings by default but says so', () => {
+    it('hides chronic warnings under a scope but says so', () => {
         // These are real warnings, so hiding them is announced. The slow-report
         // one alone was ~60,000 lines in 24h, 99.6% of everything left after
-        // scoping.
-        const on = v2.build(input({}));
+        // scoping. Scope-gated as of 2026-08-28: an unscoped search filters
+        // nothing, so this needs a category to exercise.
+        const on = v2.build(input({ scope: { category: 'payment' } }));
         expect(on.query).toContain('-"report takes more than"');
         expect(on.warnings.some((w) => w.includes('constant in this environment'))).toBe(true);
 
-        const off = v2.build(input({ showChronic: true }));
+        const off = v2.build(input({ scope: { category: 'payment' }, showChronic: true }));
         expect(off.query).not.toContain('report takes more than');
     });
 
@@ -93,16 +94,25 @@ describe('QueryBuilderV2Service', () => {
         }
     });
 
-    it('hides routine chatter by default, and can be turned off', () => {
+    it('hides routine chatter under a scope, and can be turned off', () => {
         // Default on, because the useful default is the readable one. Measured on
         // a real Forte search: 1,817 lines to 574, retaining all 81 errors and
         // all 116 warnings.
-        const on = v2.build(input({})).query;
-        expect(on).toContain('-"BatchJobLog"');
+        // Gating changed 2026-08-28: filtering by default meant a user
+        // narrowing down afterwards could miss a line already removed -- on
+        // LEECO PROD over 24h, 3,948 of 390,750 CAP-ID-bearing lines match
+        // "Request URL:https" alone.
+        // Asserted on a pattern that is still in the ROUTINE tier. BatchJobLog
+        // moved to chronic, so it survives hideRoutineChatter:false and would
+        // make this test pass for the wrong reason.
+        const on = v2.build(input({ scope: { category: 'payment' } })).query;
         expect(on).toContain('-"Request URL:https"');
+        expect(on).toContain('-"Response Headers:"');
 
-        const off = v2.build(input({ hideRoutineChatter: false })).query;
-        expect(off).not.toContain('BatchJobLog');
+        const off = v2.build(
+            input({ scope: { category: 'payment' }, hideRoutineChatter: false })
+        ).query;
+        expect(off).not.toContain('Request URL:https');
     });
 
     it('never excludes a phrase that could match a real failure', () => {
@@ -111,7 +121,7 @@ describe('QueryBuilderV2Service', () => {
         // API failure, 22 of them in the measured window. The scheme-anchored
         // form cannot, and counter-intuitively matches MORE noise: 178 lines
         // against 23. Guard the specific form so it is not "simplified" back.
-        const { query } = v2.build(input({}));
+        const { query } = v2.build(input({ scope: { category: 'payment' } }));
         expect(query).toContain('-"Request URL:https"');
         expect(query).not.toContain('-"Request URL:"');
     });
@@ -669,21 +679,26 @@ describe('QueryBuilderV2Service', () => {
             expect(paymentQuery()).toContain("*ETRANSACTION*");
         });
 
-        it("still excludes lSeqRemaining when no payment scope is selected", () => {
-            // It is 1.9M lines a day, so the exception is scoped, not global.
-            expect(v2.build(input({})).query).toContain("-\"lSeqRemaining\"");
+        it("still excludes lSeqRemaining under a scope that does not need it", () => {
+            // 1.9M lines a day, so the exception belongs to the payment category
+            // rather than being global. Documents still excludes it.
+            const query = v2.build(input({ scope: { category: "documents" } })).query;
+            expect(query).toContain("-\"lSeqRemaining\"");
         });
 
         it("no longer hides EDMS Config silently, because it contains real errors", () => {
             // 60,471,081 info lines over 7 days AND 373 status:error. It broke
             // the routine tier rule, so it moved to the announced tier.
-            const { query, warnings } = v2.build(input({}));
+            const { query, warnings } = v2.build(input({ scope: { category: "payment" } }));
             expect(query).toContain("-\"EDMS Config=\"");
             expect(warnings.some((w) => w.includes("EDMS configuration dumps"))).toBe(true);
         });
 
         it("includes EDMS Config when chronic patterns are turned on", () => {
-            expect(v2.build(input({ showChronic: true })).query).not.toContain("EDMS Config=");
+            const query = v2.build(
+                input({ scope: { category: "payment" }, showChronic: true })
+            ).query;
+            expect(query).not.toContain("EDMS Config=");
         });
 
         it("can reach the IIS access logs, which no filename gate can match", () => {
@@ -807,6 +822,47 @@ describe('QueryBuilderV2Service', () => {
             ).query;
             expect(without).not.toContain('"TraceId is"');
             expect(without).toContain('-"The response size is"');
+        });
+
+        // ------------------------------------- unscoped means unfiltered
+
+        it("filters nothing at all when no scope is chosen", () => {
+            // The default has to be complete, because the user narrows it down
+            // afterwards in Datadog. Measured on LEECO PROD over 24h: 390,750
+            // lines carry a 5-5-5 CAP ID and 3,948 of those match
+            // "Request URL:https", so the old always-on filter removed them
+            // before the user ever typed the CAP ID.
+            const { query, warnings } = v2.build(
+                input({ applications: ["Civic Platform", "Citizen Access"] })
+            );
+            expect(query).not.toContain('-"Request URL:https"');
+            expect(query).not.toContain('-"report takes more than"');
+            expect(query).not.toContain("-service:av.indexer");
+            expect(warnings.some((w) => w.includes("Nothing has been filtered out"))).toBe(true);
+        });
+
+        it("filters once a scope is chosen", () => {
+            // Scoping is what buys the noise reduction, rather than it being
+            // charged to everyone up front.
+            const { query } = v2.build(
+                input({ scope: { category: "payment", option: "forte" } })
+            );
+            expect(query).toContain('-"Request URL:https"');
+            expect(query).toContain('-"report takes more than"');
+            expect(query).toContain("-service:av.indexer");
+        });
+
+        it("no longer hides batch job failures in the silent tier", () => {
+            // Per-pattern on LEECO PROD over 24h, nine of the ten routine
+            // patterns removed zero errors and zero warns. "BatchJobLog" removed
+            // 158 errors and 10 warns by itself -- BatchJobObserver failing to
+            // read jobs from the database, which is exactly the "my nightly
+            // batch did not run" ticket.
+            const { query, warnings } = v2.build(
+                input({ scope: { category: "payment", option: "forte" } })
+            );
+            expect(query).toContain('-"BatchJobLog"');
+            expect(warnings.some((w) => w.includes("batch job failures"))).toBe(true);
         });
 
         it("has no chatterException that does not match a real pattern", () => {
