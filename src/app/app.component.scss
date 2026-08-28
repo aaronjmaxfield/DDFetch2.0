@@ -10,7 +10,9 @@
   --brand-tint: #f4eefb;
   --brand-line: rgba(107, 27, 174, 0.2);
   /* The original title-bar backdrop. */
-  --header-bg: lavender;
+  /* Greyish purple rather than the old lavender: muted enough to sit under the
+     dark backdrop without competing with the brand accents. */
+  --header-bg: #cdc6d8;
   --page-bg: #273841;
   /* Card surface. Off-white rather than #fff: pure white against the #273841
      backdrop is a jarring jump, and a faint lavender cast ties it to the brand.
@@ -40,7 +42,7 @@
   /* The side padding is what keeps the card off the screen edge on a phone,
      where it previously sat flush at x=0. The block padding stops the card
      touching top and bottom once the content is taller than the viewport. */
-  padding: 40px 16px;
+  padding: 24px 16px;
   box-sizing: border-box;
 }
 
@@ -50,7 +52,7 @@
      Tightened from 820px; the floor is set by the timestamp fields, which must
      show the full `08/28/2026 12:00 AM` plus the picker icon without clipping. */
   flex: 1 1 380px;
-  max-width: 780px;
+  max-width: 744px;
   box-sizing: border-box;
   /* Required. A flex item defaults to min-width:auto, so it refuses to shrink
      below its content's intrinsic minimum -- and `datetime-local` inputs have a
@@ -76,7 +78,7 @@
         rgba(85, 21, 138, 0.85) 100%
       )
       border-box;
-  padding: 22px 26px 20px;
+  padding: 16px 20px 14px;
   /* Heavier, and biased down and to the right the way the original
      `5px 5px 10px #888` was -- but layered, so it reads as weight rather than
      as a hard grey edge. Deepened again now that it falls on a dark backdrop. */
@@ -120,11 +122,11 @@
   /* An explicit band height, because the logo is sized from it rather than the
      other way round. Left to itself the 320px artwork dictated the height and
      the header became a 325px tall billboard. */
-  height: 86px;
+  height: 64px;
   /* No right or vertical padding: the logo runs to the band edge, and overflow
      clips it to the corner radius. */
   padding: 0 0 0 18px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
   overflow: hidden;
 
   h1 {
@@ -182,14 +184,14 @@
 /* ---------------------------------------------------------------------------
    Form rhythm
    --------------------------------------------------------------------------- */
-/* Tightened. Rows whose columns carry Bootstrap's mb-3 already have 16px of
-   their own, so this only needs to top it up. */
+/* Tightened hard, in service of the no-scrollbar goal. Rows whose columns carry
+   Bootstrap's mb-1 already have 4px of their own, so this only tops it up. */
 .form-row {
-  margin-bottom: 8px;
+  margin-bottom: 5px;
 }
 
 .form-row-tight {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 /* Bootstrap's row gutters pull content outside the panel padding. Neutralised
@@ -204,7 +206,7 @@
 label {
   font-size: 13px;
   color: var(--ink-soft);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 /* Section and group headings carry the emphasis instead of every label. */
@@ -223,7 +225,7 @@ label {
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--ink);
-  margin-bottom: 6px;
+  margin-bottom: 3px;
 }
 
 .form-control {
@@ -247,110 +249,30 @@ label {
   }
 }
 
-/* ---------------------------------------------------------------------------
-   The open dropdown list
-   ---------------------------------------------------------------------------
-   By default the browser paints the select's popup itself, grey hover highlight
-   and square corners included, and no amount of CSS on the <select> reaches it.
-   `appearance: base-select` hands that rendering back to CSS -- Chrome 135+ and
-   this machine is on 151.
+/* The open dropdown list is themed from the GLOBAL stylesheet, not here.
+   Angular's emulated encapsulation rewrites selectors in component styles, and
+   it mangles `::picker(select)`. Worse, the mangled selector sat in a group with
+   the valid one, and CSS drops an entire rule if any selector in its list fails
+   to parse -- so the `appearance: base-select` opt-in silently never applied.
+   See the block at the bottom of src/styles.scss. */
 
-   Kept behind @supports so anything without it silently falls back to the
-   native popup and the SVG caret above, rather than losing the arrow entirely.
-   The native <select> stays in the DOM either way, so every value read, change
-   handler and characterization test is untouched.
-   --------------------------------------------------------------------------- */
-@supports (appearance: base-select) {
-  select.form-control,
-  select.form-control::picker(select) {
-    appearance: base-select;
-  }
+/* Fallback caret, for browsers without customizable selects. Native select
+   arrows are grey and cannot be recoloured, so the arrow is replaced with an
+   inline SVG in the brand purple.
 
+   Gated behind `@supports not`, and that gate is load-bearing. Component styles
+   get Angular's attribute selector appended, so `select.form-control[_ngcontent]`
+   outranks the global `select.form-control { appearance: base-select }` -- this
+   `appearance: none` was silently winning and keeping the popup native. */
+@supports not (appearance: base-select) {
   select.form-control {
-    /* base-select resets the control, so the field styling is re-stated. */
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    width: 100%;
-    padding: 0.375rem 0.75rem;
-    min-height: 38px;
-    border: 1px solid var(--brand-line);
-    border-radius: 8px;
-    background: var(--field-bg);
-    background-image: none;
-    color: var(--ink);
-    font-size: 1rem;
-    line-height: 1.5;
-    text-align: left;
-
-    &:focus-visible {
-      outline: none;
-      border-color: var(--brand);
-      box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
-    }
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b1bae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    background-size: 15px 15px;
+    padding-right: 34px;
   }
-
-  /* The disclosure arrow, now a real pseudo-element instead of a background. */
-  select.form-control::picker-icon {
-    color: var(--brand);
-    transition: transform 120ms ease;
-  }
-
-  select.form-control:open::picker-icon {
-    transform: rotate(180deg);
-  }
-
-  /* The popup itself. */
-  select.form-control::picker(select) {
-    border: 1px solid var(--brand-line);
-    border-radius: 10px;
-    background: var(--field-bg);
-    padding: 5px;
-    margin-top: 4px;
-    box-shadow:
-      0 4px 10px rgba(0, 0, 0, 0.14),
-      0 12px 30px rgba(0, 0, 0, 0.22);
-  }
-
-  select.form-control option {
-    display: flex;
-    align-items: center;
-    padding: 7px 10px;
-    border-radius: 6px;
-    color: var(--ink);
-    background: transparent;
-    cursor: pointer;
-
-    /* Chrome draws a checkmark column for the selected option; the label
-       already carries the state via colour, so it only adds noise. */
-    &::checkmark {
-      display: none;
-    }
-
-    &:hover,
-    &:focus {
-      background: var(--brand-tint);
-      color: var(--brand-dark);
-      outline: none;
-    }
-
-    &:checked {
-      background: var(--brand);
-      color: #fff;
-    }
-  }
-}
-
-/* Native select arrows are grey and cannot be recoloured, so the arrow is
-   replaced with an inline SVG caret in the brand purple. */
-select.form-control {
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b1bae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 11px center;
-  background-size: 15px 15px;
-  padding-right: 34px;
 }
 
 /* Same for the calendar button inside the timestamp fields. Overriding the
@@ -373,7 +295,7 @@ input[type='datetime-local'] {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 1px;
 
   input {
     width: 16px;
@@ -399,8 +321,8 @@ input[type='datetime-local'] {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 24px;
-  padding-top: 20px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
 }
 
@@ -539,6 +461,19 @@ input[type='datetime-local'] {
     background-color: #fdecea;
     color: #8c1d18;
   }
+
+/* ---------------------------------------------------------------------------
+   Short viewports
+   Goal one is no scrollbar. On a tall screen the 24px block padding looks
+   right; on a laptop it is the difference between fitting and not, so it gives
+   way rather than squeezing the form further.
+   --------------------------------------------------------------------------- */
+@media (max-height: 780px) {
+  .page {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
 
 /* ---------------------------------------------------------------------------
    Small screens

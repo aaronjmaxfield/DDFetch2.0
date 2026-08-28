@@ -17,3 +17,116 @@ body {
   font-family: Roboto, "Helvetica Neue", sans-serif;
   background: #273841;
 }
+
+// ---------------------------------------------------------------------------
+// The open <select> dropdown list
+// ---------------------------------------------------------------------------
+// By default the browser paints the popup itself -- grey hover highlight and
+// square corners included -- and CSS on the <select> cannot reach it. Chrome
+// honours `option` background-color even on a native popup, which is a trap:
+// it colours the *selected* row and leaves hover grey, so the list ends up
+// half-themed and looking broken.
+//
+// `appearance: base-select` (Chrome 135+) hands the rendering back to CSS
+// properly. Both the select and its ::picker must opt in.
+//
+// This lives in the global stylesheet on purpose. In a component stylesheet
+// Angular's emulated encapsulation rewrites selectors and mangles
+// `::picker(select)`; grouped with a valid selector, that invalidated the whole
+// rule and the opt-in silently did nothing -- `CSS.supports` reported true
+// while the computed appearance stayed `none`. Each selector also gets its own
+// rule here, so one unsupported pseudo-element cannot take the others down.
+//
+// The native <select> stays in the DOM either way, so every value read, change
+// handler and characterization test is untouched.
+$brand: #6b1bae;
+$brand-dark: #55158a;
+$brand-tint: #f4eefb;
+$brand-line: rgba(107, 27, 174, 0.2);
+
+@supports (appearance: base-select) {
+  select.form-control {
+    appearance: base-select;
+  }
+
+  select.form-control::picker(select) {
+    appearance: base-select;
+  }
+
+  // base-select resets the control, so the field styling is re-stated.
+  select.form-control {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 0.375rem 0.75rem;
+    min-height: 38px;
+    border: 1px solid $brand-line;
+    border-radius: 8px;
+    background: #fff;
+    background-image: none;
+    color: #1f2330;
+    font-size: 1rem;
+    line-height: 1.5;
+    text-align: left;
+  }
+
+  select.form-control:focus-visible {
+    outline: none;
+    border-color: $brand;
+    box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
+  }
+
+  // The disclosure arrow, now a real pseudo-element rather than a background.
+  select.form-control::picker-icon {
+    color: $brand;
+    transition: transform 120ms ease;
+  }
+
+  select.form-control:open::picker-icon {
+    transform: rotate(180deg);
+  }
+
+  // The popup.
+  select.form-control::picker(select) {
+    border: 1px solid $brand-line;
+    border-radius: 10px;
+    background: #fff;
+    padding: 5px;
+    margin-top: 4px;
+    box-shadow:
+      0 4px 10px rgba(0, 0, 0, 0.14),
+      0 12px 30px rgba(0, 0, 0, 0.22);
+  }
+
+  select.form-control option {
+    display: flex;
+    align-items: center;
+    padding: 7px 10px;
+    border-radius: 6px;
+    color: #1f2330;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  // Chrome reserves a checkmark column for the selected row; the colour already
+  // carries that state, so the glyph is only noise.
+  select.form-control option::checkmark {
+    display: none;
+  }
+
+  // Hover and keyboard focus are the ones that matter -- a themed selected row
+  // with a grey hover was the thing that looked wrong.
+  select.form-control option:hover,
+  select.form-control option:focus {
+    background: $brand-tint;
+    color: $brand-dark;
+    outline: none;
+  }
+
+  select.form-control option:checked {
+    background: $brand;
+    color: #fff;
+  }
+}
