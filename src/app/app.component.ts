@@ -191,6 +191,9 @@ export class AppComponent {
       applications: this.applicationsUsed,
       additionalServices: this.additionalServices,
       additionalParams: this.additionalParams,
+      showChronic: this.showChronic,
+      includeIndexer: this.includeIndexer,
+      includeEmse: this.includeEmse,
       // Omitted entirely when nothing is scoped, so the engine takes its
       // original path and the fast search is byte-identical to before.
       scope: this.scopeCategory
@@ -201,6 +204,29 @@ export class AppComponent {
           }
         : undefined,
     };
+  }
+
+  /*
+   * The three "include normally hidden" switches. Grouped because they are the
+   * same kind of decision -- each one adds back a population the engine holds
+   * out by default -- and because grouping them costs one row instead of three.
+   *
+   * All default to off. Each default was measured, not assumed:
+   *   chronic  ~60,000 slow-report warnings in 24h on a busy tenant, 99.6% of
+   *            everything surviving the scope
+   *   indexer  57% of a real payment investigation, and zero errors or warns
+   *   emse     7,525 info-only lines against 1,052 for the rest of the branch
+   */
+  showChronic = false;
+  includeIndexer = false;
+  includeEmse = false;
+
+  onIncludeToggle(which: 'chronic' | 'indexer' | 'emse', on: boolean) {
+    if (which === 'chronic') this.showChronic = on;
+    if (which === 'indexer') this.includeIndexer = on;
+    if (which === 'emse') this.includeEmse = on;
+    // The previewed query no longer matches the form.
+    this.previews = [];
   }
 
   // ------------------------------------------------------------ scoped search

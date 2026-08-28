@@ -309,6 +309,57 @@
           </div>
         }
 
+        <!--
+          The three hold-outs, in one row. Each adds back a population the
+          engine excludes by default, and the defaults were measured rather than
+          guessed -- see the comments on the component fields.
+
+          Phrased as what the user gets, not as what the filter does: "Slow
+          reports" rather than "chronic patterns", because the person reading it
+          is looking at a ticket, not at our config.
+        -->
+        <div class="row form-row form-row-tight">
+          <div class="col-md-12">
+            <label class="section-label">Also include</label>
+          </div>
+        </div>
+
+        <div class="row form-row include-row">
+          <div class="col-md-4">
+            <div class="check">
+              <input
+                type="checkbox"
+                id="showChronicCheckbox"
+                [checked]="showChronic"
+                (change)="onIncludeToggle('chronic', $any($event.target).checked)"
+              />
+              <label for="showChronicCheckbox">Slow reports &amp; big queries</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="check">
+              <input
+                type="checkbox"
+                id="includeIndexerCheckbox"
+                [checked]="includeIndexer"
+                (change)="onIncludeToggle('indexer', $any($event.target).checked)"
+              />
+              <label for="includeIndexerCheckbox">Search indexer</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="check">
+              <input
+                type="checkbox"
+                id="includeEmseCheckbox"
+                [checked]="includeEmse"
+                (change)="onIncludeToggle('emse', $any($event.target).checked)"
+              />
+              <label for="includeEmseCheckbox">EMSE script logs</label>
+            </div>
+          </div>
+        </div>
+
         <div class="scope-legacy-inputs">
           <input type="checkbox" id="forteCheckbox" name="additionalServices[]" value="Forte" />
           <input type="checkbox" id="paypalCheckbox" name="additionalServices[]" value="Paypal Commerce" />
