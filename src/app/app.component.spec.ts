@@ -57,7 +57,17 @@ describe('AppComponent (characterization)', () => {
     // ---------------------------------------------------------------- helpers
 
     function el<T extends HTMLElement>(id: string): T {
-        const found = fixture.nativeElement.querySelector(`#${id}`) as T;
+        let found = fixture.nativeElement.querySelector(`#${id}`) as T;
+        // TRACE_ID and Additional Parameters sit behind a collapsed disclosure,
+        // so they are not in the DOM until it is opened. Opening it here keeps
+        // that a fact about the UI in one place, instead of a setup line in
+        // every test that touches either field. A field that is genuinely gone
+        // still throws.
+        if (!found && !component.showAdvanced) {
+            component.showAdvanced = true;
+            fixture.detectChanges();
+            found = fixture.nativeElement.querySelector(`#${id}`) as T;
+        }
         if (!found)
             throw new Error(`No element #${id} in template`);
         return found;
@@ -189,6 +199,35 @@ describe('AppComponent (characterization)', () => {
         setEnvironment('PROD');
         setHost('CA');
         expect(component.environment).toBe('');
+    });
+
+    // ------------------------------------------------ advanced disclosure
+    // A trace ID search ignores every other field on the form, so a value left
+    // behind inside a collapsed section would hijack the next Fetch with
+    // nothing on screen to explain why the results looked nothing like the
+    // form. Collapsing must clear it.
+
+    it('starts with the advanced fields collapsed', () => {
+        expect(component.showAdvanced).toBe(false);
+        expect(fixture.nativeElement.querySelector('#inputTraceID')).toBeNull();
+        expect(fixture.nativeElement.querySelector('#inputAdditionalParams')).toBeNull();
+    });
+
+    it('drops a typed trace ID when the advanced section is collapsed again', () => {
+        setText('inputTraceID', '20260827124240646-4f3b5f17'); // opens the disclosure
+        component.toggleAdvanced(); // collapse
+        fixture.detectChanges();
+
+        expect(component.traceId).toBe('');
+
+        setText('inputServProvCode', 'TESTAGCY');
+        setHost('US');
+        setEnvironment('PROD');
+        setValidWindow();
+        submit();
+
+        // A normal agency search, not the trace-ID path.
+        expect(openedQuery()).not.toContain('20260827124240646-4f3b5f17');
     });
 
     // ----------------------------------------------------------- trace ID path

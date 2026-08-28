@@ -77,6 +77,24 @@ export class AppComponent {
     this.readmeHidden = !this.readmeHidden;
   }
 
+  /**
+   * TRACE_ID and Additional Parameters live behind this, collapsed by default.
+   * Neither is actionable without a Datadog background, and an unexplained
+   * field costs every user attention while helping only a few.
+   */
+  showAdvanced = false;
+
+  toggleAdvanced() {
+    this.showAdvanced = !this.showAdvanced;
+    if (!this.showAdvanced) {
+      // Collapsing has to clear them. A TRACE_ID search ignores every other
+      // field on the form, so a value left behind in a collapsed section would
+      // silently take over the next Fetch with nothing on screen to explain it.
+      this.traceId = '';
+      this.additionalParams = '';
+    }
+  }
+
   get isCompareMode(): boolean {
     return this.engineMode === 'compare';
   }
@@ -90,10 +108,10 @@ export class AppComponent {
     event.preventDefault();
     this.previews = [];
 
-    this.traceId = (this.getInputElement('inputTraceID') as HTMLInputElement).value;
-    this.additionalParams = (
-      this.getInputElement('inputAdditionalParams') as HTMLInputElement
-    ).value;
+    // Absent from the DOM whenever the Advanced disclosure is collapsed, so
+    // these have to tolerate a missing element rather than assume one.
+    this.traceId = this.readInputValue('inputTraceID');
+    this.additionalParams = this.readInputValue('inputAdditionalParams');
 
     // A trace ID search ignores every other field, and the query is identical
     // whichever engine is selected, so it is handled separately.
@@ -410,6 +428,11 @@ export class AppComponent {
 
   private getInputElement(id: string): HTMLElement | null {
     return document.getElementById(id);
+  }
+
+  /** Empty string for a field that is not currently rendered. */
+  private readInputValue(id: string): string {
+    return (this.getInputElement(id) as HTMLInputElement | null)?.value ?? '';
   }
 
   private getCheckedApplications(): string[] {

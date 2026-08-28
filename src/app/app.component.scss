@@ -267,9 +267,55 @@ label {
   vertical-align: 1px;
 }
 
+/* A quiet section-header-shaped trigger, so it reads as a peer of the labels
+   around it rather than as a button competing with Fetch. */
+.disclosure {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--brand-dark);
+  cursor: pointer;
+
+  .caret {
+    font-size: 9px;
+    transition: transform 130ms ease;
+  }
+
+  &.open .caret {
+    transform: rotate(90deg);
+  }
+
+  &:hover {
+    color: var(--brand);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+/* Names the contents, so hiding TRACE_ID does not make it unfindable. */
+.disclosure-note {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-soft);
+}
+
 /* The revealed fields are tinted so it reads as one disclosed group rather than
    more form rows appearing from nowhere. */
-.scope-fields {
+.scope-fields,
+.advanced-fields {
   background: var(--brand-tint);
   border: 1px solid var(--brand-line);
   border-radius: 8px;

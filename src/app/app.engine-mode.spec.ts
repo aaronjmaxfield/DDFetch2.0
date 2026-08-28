@@ -37,7 +37,15 @@ describe('AppComponent engine modes', () => {
     });
 
     function el(id: string): HTMLElement {
-        return fixture.nativeElement.querySelector(`#${id}`) as HTMLElement;
+        let found = fixture.nativeElement.querySelector(`#${id}`) as HTMLElement;
+        // TRACE_ID lives behind a collapsed disclosure; open it on demand so the
+        // trace-ID tests stay about query building rather than UI chrome.
+        if (!found && !component.showAdvanced) {
+            component.showAdvanced = true;
+            fixture.detectChanges();
+            found = fixture.nativeElement.querySelector(`#${id}`) as HTMLElement;
+        }
+        return found;
     }
 
     function fillValidForm(opts: { apps?: string[]; services?: string[]; host?: string; env?: string } = {}) {
