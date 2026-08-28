@@ -88,6 +88,19 @@ describe('AppComponent (characterization)', () => {
         box.dispatchEvent(new Event('change'));
     }
 
+    /**
+     * Civic Platform is checked by default in the template, so a test that means
+     * "this selection and nothing else" has to clear it explicitly. Without
+     * this, several tests below would quietly assert on a query that also
+     * carried the biz-tier branch, and their names would no longer describe
+     * their input.
+     */
+    function uncheck(id: string) {
+        const box = el<HTMLInputElement>(id);
+        box.checked = false;
+        box.dispatchEvent(new Event('change'));
+    }
+
     function setTimestamps(begin: string, end: string) {
         setText('inputBeginTimestamp', begin);
         setText('inputEndTimestamp', end);
@@ -245,6 +258,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         setValidWindow();
         submit();
 
@@ -292,6 +306,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('forteCheckbox');
         check('paypalCheckbox');
         setValidWindow();
@@ -305,6 +320,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('acdsCheckbox');
         check('adsCheckbox');
         setValidWindow();
@@ -459,6 +475,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('constructAPICheckbox');
         setValidWindow();
         submit();
@@ -475,6 +492,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('forteCheckbox');
         setValidWindow();
         submit();
@@ -488,6 +506,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('paypalCheckbox');
         setValidWindow();
         submit();
@@ -498,6 +517,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('acdsCheckbox');
         setValidWindow();
         submit();
@@ -511,6 +531,7 @@ describe('AppComponent (characterization)', () => {
         setText('inputServProvCode', 'TESTAGCY');
         setHost('US');
         setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
         check('adsCheckbox');
         setValidWindow();
         submit();

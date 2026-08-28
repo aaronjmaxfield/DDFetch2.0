@@ -47,9 +47,9 @@
         <strong>Tips:</strong>
         <ol>
           <li>
-            If you are searching for logs for something that took place in ACA, it's a good idea to
-            include <code>Civic Platform (biz)</code> as a selection as most errors ACA displays
-            come from the biz server.
+            <code>Civic Platform (biz)</code> is selected for you by default, and it is usually
+            worth leaving on. Most errors ACA displays come from the biz server, so an ACA search
+            without it will often miss the line you are looking for.
           </li>
           <li>
             If searching for something in relation to a specific record, always search for the Full
@@ -173,11 +173,15 @@
         <div class="row form-row">
           <div class="col-md-4">
             <label for="civicPlatformCheckbox" style="padding-right: 2px">Civic Platform</label>
+            <!-- Checked by default: the biz tier is the right starting point for
+                 almost every search, and the instructions above already tell you
+                 to include it because most errors ACA shows originate there. -->
             <input
               type="checkbox"
               id="civicPlatformCheckbox"
               name="applicationsUsed[]"
               value="Civic Platform"
+              checked
             />
           </div>
           <div class="col-md-4">

@@ -33,9 +33,10 @@
     max-height: 80px;
   }
 
-  label {
-    font-weight: bold;
-  }
+  /* Field labels are normal weight. Bold is reserved for the section headings
+     that still carry <strong> -- Additional Services, Payments, Documents and
+     Query Engine -- so the form has some visual hierarchy instead of every
+     word competing for attention. */
 
   .readme {
     display: none;
