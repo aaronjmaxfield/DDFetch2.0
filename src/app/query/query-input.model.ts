@@ -39,6 +39,14 @@ export interface QueryInput {
    */
   includeEmse?: boolean;
   /**
+   * Adds the ACA IIS access logs (page requests: HTTP status and duration).
+   *
+   * Opt-in and off by default. LEECO alone is 1,891,225 of these lines in 24
+   * hours, so including them unconditionally would bury every other result.
+   * They are reachable ONLY through the URL path -- see acaUrlSegment.
+   */
+  includeIis?: boolean;
+  /**
    * Scoped search, the progressive-disclosure replacement for the additional-
    * service checkboxes. See scopes.config.ts.
    *

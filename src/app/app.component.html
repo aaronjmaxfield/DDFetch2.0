@@ -406,13 +406,38 @@
                     [checked]="includeEmse"
                     (change)="onIncludeToggle('emse', $any($event.target).checked)"
                   />
-                  <label for="includeEmseCheckbox">EMSE script logs</label>
+                  <label for="includeEmseCheckbox">EMSE scripts</label>
                   <span
                     class="info"
                     tabindex="0"
                     role="note"
                     aria-label="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
                     data-tip="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
+                    >i</span
+                  >
+                </div>
+              </div>
+              <!--
+                Page requests. Off by default because the population is enormous
+                -- one production agency logs 1,891,225 of these lines in 24
+                hours -- but they were unreachable at any setting before, and
+                they are the only place the HTTP status and page duration live.
+              -->
+              <div class="col-md-4">
+                <div class="check">
+                  <input
+                    type="checkbox"
+                    id="includeIisCheckbox"
+                    [checked]="includeIis"
+                    (change)="onIncludeToggle('iis', $any($event.target).checked)"
+                  />
+                  <label for="includeIisCheckbox">Page requests</label>
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Adds the web server's own request log, which is the only place the page's HTTP status and how long it took are recorded. Tick it for a blank page, a redirect loop, or a page that hung. Very high volume."
+                    data-tip="Adds the web server's own request log, which is the only place the page's HTTP status and how long it took are recorded. Tick it for a blank page, a redirect loop, or a page that hung. Very high volume."
                     >i</span
                   >
                 </div>

@@ -7,6 +7,7 @@ import {
   HostDef,
   ServiceDef,
   ServiceTarget,
+  acaUrlSegment,
 } from './environments.config';
 import { fieldsFor, findCategory, findOption } from './scopes.config';
 import {
@@ -282,10 +283,15 @@ export class QueryBuilderV2Service implements QueryEngine {
          * environment's own filename shape fixes that without losing recall.
          *
          * The free-text arm earns its place despite the noise: it is the only
-         * route to the IIS access logs, which are 62.4% of all ACA volume and
-         * carry the tenant in neither `filename` nor `@agencycode`, and the only
          * route to Oregon child agencies, whose ACA filenames are site names
          * rather than agency codes.
+         *
+         * It does NOT reach the IIS access logs. This comment used to claim it
+         * was "the only route" to them, which was wrong and hid the largest
+         * blind spot in the tool: both arms are gated on a `filename:` shape,
+         * and the IIS logs are written to `u_ex{date}_x.log`, so
+         * `filename:u_ex*` AND `filename:*-prod*` is 0 by construction. They are
+         * reachable only via the URL path -- see the `includeIis` arm below.
          *
          * The shape is derived from the filename token, NOT from `env.jndi`.
          * They diverge: Oregon TRAIN's jndi is `ortest` but its file is
@@ -298,6 +304,35 @@ export class QueryBuilderV2Service implements QueryEngine {
           : `filename:${acaToken}*`;
         identity.push(`(service:aca AND @agencycode:${upper} AND ${envShape})`);
         identity.push(`(service:aca AND *${upper}* AND ${envShape})`);
+
+        /*
+         * Page requests. Opt-in, because this population is enormous: LEECO
+         * alone is 1,891,225 IIS lines in 24 hours, which would bury everything
+         * else in a default search. Under the payment scope the category markers
+         * cut that to 16,766, and only 1,172 of those are non-200 -- so it is
+         * usable when asked for and ruinous when not.
+         *
+         * Worth having because it is the only place the HTTP status and the page
+         * duration live. In one real case the evidence that a payment page took
+         * 121 seconds and returned a 302 existed ONLY on an IIS line, and the
+         * tool could not return it at any setting.
+         */
+        if (input.includeIis) {
+          identity.push(
+            `(service:aca AND filename:u_ex* AND ${acaUrlSegment(upper, env)})`
+          );
+          /*
+           * Announced, because the counts mislead. Adding these took a measured
+           * LEECO payment search from 37,226 lines to 53,960 while the error
+           * count stayed at 136: Datadog classes every IIS line as `info`
+           * regardless of the HTTP status it records, so a page that returned
+           * 500 does not appear as an error. Someone filtering on error status
+           * would conclude the page was fine.
+           */
+          warnings.push(
+            'Page requests are included. Note that these lines are all logged as "info" even when the page failed -- the HTTP status is inside the message text, so filtering by error status will hide a 500. Look for the status code near the end of the line, along with the time taken in milliseconds.'
+          );
+        }
       } else {
         warnings.push(
           env.acaNote ??

@@ -527,6 +527,45 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
   },
 ];
 
+/**
+ * The agency/environment segment of an ACA URL path, as it appears in the IIS
+ * access logs -- `/LEECO/Cap/CapPayment.aspx`, `/SANTAANA-NONPROD1/...`.
+ *
+ * -------------------------------------------------------------------------
+ * WHY THIS EXISTS AT ALL
+ * -------------------------------------------------------------------------
+ * The IIS access logs are the largest population in the estate -- 475,261,009
+ * lines over 7 days -- and they were unreachable from every UI selection. They
+ * are written to `u_ex260827_x.log`, which carries neither the agency nor the
+ * environment, and they carry NO `@agencycode` facet (measured: the group-by
+ * returns nothing). Every ACA arm is gated on a `filename:` shape, and
+ * `filename:u_ex*` AND `filename:*-prod*` is 0 by construction.
+ *
+ * So the URL path is the only handle, and it is a good one: `{*}/LEECO/{*}` and
+ * `{*}/FDNY/{*}` have a measured intersection of exactly 0.
+ *
+ * -------------------------------------------------------------------------
+ * WHY THE ENVIRONMENT HAS TO BE IN THE SEGMENT, NOT THE HOST
+ * -------------------------------------------------------------------------
+ * Because the host does not separate environments for these lines. Measured
+ * over 7 days: 6,758 of LEECO's PROD-path lines are served from `mtsup` hosts,
+ * and CRC-TEST lines appear on both `mtprd` and `stg`. Leaning on `hostClause`
+ * alone would mix environments; leaning on it *as well* costs about 0.07% recall
+ * on PROD, which is the trade taken here since the host clause is applied to the
+ * whole identity group upstream.
+ *
+ * Production uses the bare agency code and non-production appends `env.ui`.
+ * Verified: `{*}/LEECO/{*}` 9,355,177 against `{*}/LEECO-PROD/{*}` 387 (so PROD is bare);
+ * `{*}/CRC-TEST/{*}` 151, `{*}/CRC-SUPP/{*}` 170, `{*}/CRC-NONPROD1/{*}` 2,
+ * `{*}/BALTCO-NONPROD1/{*}` 2,395, `{*}/TAMPA-TEST/{*}` 84, `{*}/LJCMG-SUPP/{*}` 153.
+ *
+ * Only US environments were verified. Oregon expresses its ACA filenames as site
+ * names rather than agency codes, so its URL segment is an ASSUMPTION.
+ */
+export function acaUrlSegment(agencyUpper: string, env: EnvironmentDef): string {
+  return env.ui === 'PROD' ? `*/${agencyUpper}/*` : `*/${agencyUpper}-${env.ui}/*`;
+}
+
 export function findHost(ui: string): HostDef | undefined {
   return HOSTS.find((h) => h.ui === ui);
 }

@@ -97,6 +97,7 @@ export class AppComponent {
       this.showChronic = false;
       this.includeIndexer = false;
       this.includeEmse = false;
+      this.includeIis = false;
       this.previews = [];
     }
   }
@@ -218,6 +219,7 @@ export class AppComponent {
       showChronic: this.showChronic,
       includeIndexer: this.includeIndexer,
       includeEmse: this.includeEmse,
+      includeIis: this.includeIis,
       // Omitted entirely when nothing is scoped, so the engine takes its
       // original path and the fast search is byte-identical to before.
       scope: this.scopeCategory
@@ -244,11 +246,20 @@ export class AppComponent {
   showChronic = false;
   includeIndexer = false;
   includeEmse = false;
+  /*
+   * Off by default and deliberately so: LEECO alone logs 1,891,225 IIS access
+   * lines in 24 hours. But they were unreachable at ANY setting until now, and
+   * they are the only place the HTTP status and page duration live -- in one
+   * real case the proof that a payment page took 121 seconds and returned a 302
+   * existed only there.
+   */
+  includeIis = false;
 
-  onIncludeToggle(which: 'chronic' | 'indexer' | 'emse', on: boolean) {
+  onIncludeToggle(which: 'chronic' | 'indexer' | 'emse' | 'iis', on: boolean) {
     if (which === 'chronic') this.showChronic = on;
     if (which === 'indexer') this.includeIndexer = on;
     if (which === 'emse') this.includeEmse = on;
+    if (which === 'iis') this.includeIis = on;
     // The previewed query no longer matches the form.
     this.previews = [];
   }

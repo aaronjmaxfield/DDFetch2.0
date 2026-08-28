@@ -686,6 +686,53 @@ describe('QueryBuilderV2Service', () => {
             expect(v2.build(input({ showChronic: true })).query).not.toContain("EDMS Config=");
         });
 
+        it("can reach the IIS access logs, which no filename gate can match", () => {
+            // 475,261,009 lines over 7 days and unreachable from every UI
+            // selection: they are written to u_ex{date}_x.log and carry no
+            // @agencycode, so every filename-gated ACA arm returns 0 by
+            // construction. Measured: filename:u_ex* AND filename:*-prod* = 0.
+            const { query } = v2.build(
+                input({ applications: ["Civic Platform", "Citizen Access"], includeIis: true })
+            );
+            expect(query).toContain("filename:u_ex*");
+            // Scoped by URL path, because the host does not separate
+            // environments here: 6,758 of LEECO's PROD-path lines are served
+            // from mtsup hosts.
+            expect(query).toContain("*/AGCY/*");
+        });
+
+        it("appends the environment to the URL segment outside production", () => {
+            // PROD is bare (*/LEECO/* 9,355,177 vs */LEECO-PROD/* 387); every
+            // other environment carries it (*/BALTCO-NONPROD1/* 2,395).
+            const { query } = v2.build(
+                input({
+                    environment: "NONPROD1",
+                    applications: ["Civic Platform", "Citizen Access"],
+                    includeIis: true,
+                })
+            );
+            expect(query).toContain("*/AGCY-NONPROD1/*");
+        });
+
+        it("warns that page requests are logged as info even when the page failed", () => {
+            // Measured: adding them took LEECO from 37,226 lines to 53,960 with
+            // the error count unchanged at 136. Datadog classes every IIS line
+            // as info regardless of the HTTP status it records, so filtering by
+            // error status hides a 500 outright.
+            const { warnings } = v2.build(
+                input({ applications: ["Civic Platform", "Citizen Access"], includeIis: true })
+            );
+            expect(warnings.some((w) => w.includes('logged as "info"'))).toBe(true);
+        });
+
+        it("leaves the IIS logs out unless asked", () => {
+            // Opt-in on purpose: one agency is 1,891,225 of these in 24 hours.
+            const { query } = v2.build(
+                input({ applications: ["Civic Platform", "Citizen Access"] })
+            );
+            expect(query).not.toContain("filename:u_ex*");
+        });
+
         it("has no chatterException that does not match a real pattern", () => {
             // A typo in chatterExceptions silently does nothing, which would
             // look like the fix working.
