@@ -9,11 +9,22 @@
   `ms-auto`, and the CDN links are gone. Font Awesome, which the help icon
   genuinely needs, moved to index.html where document-level assets belong.
 -->
-<div class="container">
-  <div class="row justify-content-center align-items-center" style="min-height: 100vh">
-    <div [ngClass]="{ readme: true, 'col-md-6': !readmeHidden }">
-      <div class="readme" [ngClass]="{ hidden: readmeHidden }">
-        <strong>Instructions:</strong>
+<!--
+  Layout note. This used to be `.container > .row.justify-content-center` with the
+  instructions panel as a sibling column whose class list was
+  `{ readme: true, 'col-md-6': !readmeHidden }`. With the panel hidden that
+  wrapper kept the `readme` class but lost `col-md-6`, and because the SCSS only
+  hid `.readme` elements *without* `.hidden` -- which the wrapper never had -- it
+  rendered as a full-width invisible flex item. It took the whole first flex line,
+  pushed the card onto a second, and `align-content: stretch` then split the
+  slack 0.75/0.25, so the card sat measurably below centre at every viewport
+  size. Now the panel is not rendered at all when hidden, and the page is a
+  single-line flex container that owns its own centring and padding.
+-->
+<div class="page">
+  @if (!readmeHidden) {
+    <aside class="panel readme-panel">
+      <strong>Instructions:</strong>
         <ol>
           <li>You must already be signed into DataDog in your browser for this to work.</li>
           <li>
@@ -77,24 +88,25 @@
             parameters in datadog for what you're looking for.
           </li>
         </ol>
-      </div>
-    </div>
+    </aside>
+  }
 
-    <div class="col-md-6 container-border">
+  <main class="panel form-panel">
       <form>
         <!-- Title and logo -->
-        <div class="row form-row title-row">
-          <div class="col-md-6">
-            <h1>DDFETCH 2.0</h1>
+        <header class="app-header">
+          <div class="app-header-text">
+            <h1>
+              DDFETCH
+              <span class="version-chip">2.0</span>
+            </h1>
+            <p class="app-tagline">Datadog query builder for Accela</p>
           </div>
-          <!-- col-auto is required: Bootstrap 5 gives `.row > *` width:100%, so an
-               un-classed child wraps onto its own line instead of sitting right. -->
-          <div class="col-auto ms-auto">
-            <img src="assets/logo.jpeg" alt="DDFETCH 2.0 logo" class="logo" />
-          </div>
-        </div>
+          <img src="assets/logo.jpeg" alt="DDFETCH 2.0 logo" class="logo" />
+        </header>
 
         <!-- ServProvCode, Host, Environment -->
+        <p class="group-heading">Scope</p>
         <div class="row form-row">
           <div class="col-md-4 mb-3">
             <label for="inputServProvCode">ServProvCode</label>
@@ -124,6 +136,7 @@
         </div>
 
         <!-- Timeframe and timestamps -->
+        <p class="group-heading">Time range</p>
         <div class="row form-row">
           <div class="col-md-4 mb-3">
             <label for="selectedTimeframe">Timeframe</label>
@@ -169,42 +182,51 @@
           </div>
         </div>
 
-        <!-- Applications -->
+        <!-- Applications. Input before label throughout: the original markup put
+             the label first, which left the box jammed against the text. -->
+        <p class="group-heading">Applications</p>
         <div class="row form-row">
           <div class="col-md-4">
-            <label for="civicPlatformCheckbox" style="padding-right: 2px">Civic Platform</label>
-            <!-- Checked by default: the biz tier is the right starting point for
-                 almost every search, and the instructions above already tell you
-                 to include it because most errors ACA shows originate there. -->
-            <input
-              type="checkbox"
-              id="civicPlatformCheckbox"
-              name="applicationsUsed[]"
-              value="Civic Platform"
-              checked
-            />
+            <div class="check">
+              <!-- Checked by default: the biz tier is the right starting point for
+                   almost every search, and the instructions already say to leave
+                   it on because most errors ACA shows originate there. -->
+              <input
+                type="checkbox"
+                id="civicPlatformCheckbox"
+                name="applicationsUsed[]"
+                value="Civic Platform"
+                checked
+              />
+              <label for="civicPlatformCheckbox">Civic Platform</label>
+            </div>
           </div>
           <div class="col-md-4">
-            <label for="citizenAccessCheckbox" style="padding-right: 2px">Citizen Access</label>
-            <input
-              type="checkbox"
-              id="citizenAccessCheckbox"
-              name="applicationsUsed[]"
-              value="Citizen Access"
-            />
+            <div class="check">
+              <input
+                type="checkbox"
+                id="citizenAccessCheckbox"
+                name="applicationsUsed[]"
+                value="Citizen Access"
+              />
+              <label for="citizenAccessCheckbox">Citizen Access</label>
+            </div>
           </div>
           <div class="col-md-4">
-            <label for="constructAPICheckbox" style="padding-right: 2px">Construct API</label>
-            <input
-              type="checkbox"
-              id="constructAPICheckbox"
-              name="applicationsUsed[]"
-              value="CAPI"
-            />
+            <div class="check">
+              <input
+                type="checkbox"
+                id="constructAPICheckbox"
+                name="applicationsUsed[]"
+                value="CAPI"
+              />
+              <label for="constructAPICheckbox">Construct API</label>
+            </div>
           </div>
         </div>
 
         <!-- TRACE_ID -->
+        <p class="group-heading">Filters</p>
         <div class="row form-row">
           <div class="col-md-12 mb-3">
             <label for="inputTraceID">TRACE_ID</label>
@@ -221,60 +243,56 @@
         </div>
 
         <!-- Additional services -->
-        <div class="row form-row">
-          <div class="col-md-12 mb-3">
-            <label><strong>Additional Services</strong></label>
-          </div>
-        </div>
+        <p class="group-heading">Additional services</p>
 
         <div class="row form-row">
           <div class="col-md-6">
-            <label><strong>Payments:</strong></label>
-            <div>
-              <label for="forteCheckbox" style="padding-right: 2px">Forte</label>
+            <label class="group-label">Payments</label>
+            <div class="check">
               <input
                 type="checkbox"
                 id="forteCheckbox"
                 name="additionalServices[]"
                 value="Forte"
               />
+              <label for="forteCheckbox">Forte</label>
             </div>
-            <div>
-              <label for="paypalCheckbox" style="padding-right: 2px">Paypal Commerce</label>
+            <div class="check">
               <input
                 type="checkbox"
                 id="paypalCheckbox"
                 name="additionalServices[]"
                 value="Paypal Commerce"
               />
+              <label for="paypalCheckbox">Paypal Commerce</label>
             </div>
-            <div>
-              <label for="securePayCheckbox" style="padding-right: 2px">SecurePay</label>
+            <div class="check">
               <input
                 type="checkbox"
                 id="securePayCheckbox"
                 name="additionalServices[]"
                 value="SecurePay"
               />
+              <label for="securePayCheckbox">SecurePay</label>
             </div>
           </div>
           <div class="col-md-6">
-            <label><strong>Documents:</strong></label>
-            <div>
-              <label for="acdsCheckbox" style="padding-right: 2px">ACDS</label>
+            <label class="group-label">Documents</label>
+            <div class="check">
               <input type="checkbox" id="acdsCheckbox" name="additionalServices[]" value="ACDS" />
+              <label for="acdsCheckbox">ACDS</label>
             </div>
-            <div>
-              <label for="adsCheckbox" style="padding-right: 2px">ADS</label>
+            <div class="check">
               <input type="checkbox" id="adsCheckbox" name="additionalServices[]" value="ADS" />
+              <label for="adsCheckbox">ADS</label>
             </div>
           </div>
         </div>
 
         <!-- Query engine selector -->
+        <p class="group-heading">Query engine</p>
         <div class="row form-row">
           <div class="col-md-12">
-            <label><strong>Query Engine</strong></label>
             <div class="engine-select">
               <label for="engineCompare">
                 <input
@@ -310,22 +328,25 @@
           </div>
         </div>
 
-        <div class="row form-row">
+        <div class="app-actions">
+          <button
+            type="button"
+            class="help-toggle"
+            [attr.aria-expanded]="!readmeHidden"
+            aria-label="Show instructions"
+            (click)="toggleReadme()"
+          >
+            <i class="fas fa-question-circle"></i>
+            <span>Instructions</span>
+          </button>
+
           <button
             type="submit"
-            class="btn btn-primary custom-btn-primary col-md-4 mb-3"
+            class="btn custom-btn-primary fetch-btn"
             (click)="onSubmit($event)"
           >
             Fetch
           </button>
-
-          <div class="col-md-6"></div>
-
-          <i
-            class="fas fa-question-circle col-md-2"
-            style="font-size: 24px; color: rgba(136, 37, 218, 1); cursor: pointer"
-            (click)="toggleReadme()"
-          ></i>
         </div>
 
         <!-- Generated query preview -->
@@ -365,6 +386,5 @@
           </div>
         }
       </form>
-    </div>
-  </div>
+  </main>
 </div>

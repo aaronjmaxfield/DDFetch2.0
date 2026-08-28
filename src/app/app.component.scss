@@ -1,64 +1,339 @@
-.container-border {
-    border: 3px solid rgba(136, 37, 218, 0.5); /* 3px thick and transparent blue border */
-    padding: 20px;
-    box-shadow: 5px 5px 10px #888888; /* Shadow effect */
-    border-radius: 10px; /* Rounded corners */
+/* ---------------------------------------------------------------------------
+   Design tokens
+   One purple, used at a few fixed opacities, so accents stay consistent.
+   --------------------------------------------------------------------------- */
+:host {
+  --brand: #8825da;
+  --brand-dark: #6f1cb4;
+  --brand-tint: #f7f2fd;
+  --brand-line: rgba(136, 37, 218, 0.18);
+  --ink: #1f2330;
+  --ink-soft: #5b6072;
+  --line: #e6e4ec;
+  --radius: 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   Page shell
+   Owns centring and padding. See the layout note in the template for why the
+   Bootstrap row that used to do this centred the card incorrectly.
+   --------------------------------------------------------------------------- */
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  align-content: center;
+  gap: 24px;
+  /* The side padding is what keeps the card off the screen edge on a phone,
+     where it previously sat flush at x=0. The block padding stops the card
+     touching top and bottom once the content is taller than the viewport. */
+  padding: 40px 16px;
+  box-sizing: border-box;
+}
+
+.panel {
+  /* Grows into the space but stops before the form gets uncomfortably wide.
+     Previously fixed at col-md-6, so it was a narrow strip on a 1920 screen. */
+  flex: 1 1 380px;
+  max-width: 820px;
+  box-sizing: border-box;
+  /* Required. A flex item defaults to min-width:auto, so it refuses to shrink
+     below its content's intrinsic minimum -- and `datetime-local` inputs have a
+     wide one. Without this the card was wider than a phone viewport and the
+     right-hand side was cut off. */
+  min-width: 0;
+}
+
+.form-panel {
+  position: relative;
+  background: #fff;
+  border: 1px solid var(--brand-line);
+  border-radius: var(--radius);
+  padding: 28px 32px 24px;
+  /* Layered ambient shadow rather than the old hard 5px grey offset, which was
+     the single most dated thing on the page. */
+  box-shadow:
+    0 1px 2px rgba(24, 20, 38, 0.05),
+    0 10px 28px -6px rgba(24, 20, 38, 0.12);
+  overflow: hidden;
+}
+
+/* Brand accent along the top edge, replacing the 3px purple ring that used to
+   outline the whole card. */
+.form-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--brand) 0%, #b06ae8 100%);
+}
+
+.readme-panel {
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-line);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  max-height: 80vh;
+  overflow-y: auto;
+
+  code {
+    background: #fff;
+    border: 1px solid var(--brand-line);
+    border-radius: 4px;
+    padding: 0 4px;
+    color: var(--brand-dark);
   }
-  .form-row {
-    margin-bottom: 20px; /* Add space between rows */
+}
+
+/* ---------------------------------------------------------------------------
+   Header
+   --------------------------------------------------------------------------- */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+
+  h1 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-size: 30px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+}
+
+.app-header-text {
+  min-width: 0;
+}
+
+.app-tagline {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* The version badge does the "this is 2.0, not 1.1" work on its own, which
+   means the title itself can stay calm. */
+.version-chip {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-line);
+  color: var(--brand-dark);
+  transform: translateY(1px);
+}
+
+.logo {
+  max-height: 64px;
+  margin-left: auto;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Form rhythm
+   --------------------------------------------------------------------------- */
+.form-row {
+  margin-bottom: 18px;
+}
+
+.form-row-tight {
+  margin-bottom: 8px;
+}
+
+/* Bootstrap's row gutters pull content outside the panel padding. Neutralised
+   so the panel padding is the only thing setting the left and right edge. */
+.form-row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+label {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+
+/* Section and group headings carry the emphasis instead of every label. */
+.section-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* Group headings turn what was a flat run of eight rows into named sections.
+   The hairline rule runs from the text to the right edge, which gives the
+   grouping without the boxiness of nested cards. */
+.group-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brand-dark);
+  white-space: nowrap;
+
+  &::after {
+    content: '';
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--line);
   }
 
-  .title-row {
-    background-color: lavender;
-    border-radius: 10px; /* Rounded corners */
+  /* Breathing room above each heading except the first, which already sits
+     under the header rule. */
+  & + .form-row {
+    margin-bottom: 18px;
+  }
+}
+
+.form-row + .group-heading,
+.row + .group-heading {
+  margin-top: 26px;
+}
+
+.group-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.form-control {
+  border-radius: 8px;
+  border-color: var(--line);
+  color: var(--ink);
+  /* Same reason as .panel -- lets the date inputs shrink on narrow screens
+     instead of forcing the card wider than the viewport. */
+  min-width: 0;
+
+  &:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(136, 37, 218, 0.14);
+  }
+}
+
+/* Box before label, with real spacing. The original markup put the label first
+   so the box ended up jammed against the text. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+
+  input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--brand);
+    cursor: pointer;
+    flex-shrink: 0;
+    margin: 0;
   }
 
-  .custom-btn-primary {
-    background-color: rgba(136, 37, 218, 1); /* Background color */
-    border: none; /* Remove button border */
-    color: #fff; /* Text color */
+  label {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ink);
+    cursor: pointer;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Actions
+   --------------------------------------------------------------------------- */
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.custom-btn-primary {
+  background-color: var(--brand);
+  border: none;
+  color: #fff;
+  border-radius: 8px;
+  font-weight: 500;
+
+  &:hover,
+  &:focus {
+    background-color: var(--brand-dark);
+    color: #fff;
+  }
+}
+
+.fetch-btn {
+  margin-left: auto;
+  min-width: 148px;
+  padding: 9px 20px;
+}
+
+.help-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+
+  i {
+    color: var(--brand);
+    font-size: 15px;
   }
 
-  .custom-btn-primary:hover {
-    background-color: rgba(
-      136,
-      37,
-      218,
-      1
-    ); /* Change the background color to lavender on hover */
-    color: #fff; /* Text color */
+  &:hover {
+    border-color: var(--brand-line);
+    background: var(--brand-tint);
+    color: var(--brand-dark);
   }
-  /* Style for logo */
-  .logo {
-    max-height: 80px;
-  }
-
-  /* Field labels are normal weight. Bold is reserved for the section headings
-     that still carry <strong> -- Additional Services, Payments, Documents and
-     Query Engine -- so the form has some visual hierarchy instead of every
-     word competing for attention. */
-
-  .readme {
-    display: none;
-  }
-  
-  /* Show the README if it's not hidden */
-  .readme:not(.hidden) {
-    display: block;
-  }
+}
 
   .engine-select {
     display: flex;
     gap: 18px;
     flex-wrap: wrap;
+    margin-top: 6px;
 
     label {
+      display: inline-flex;
+      align-items: center;
       font-weight: normal;
+      font-size: 14px;
+      color: var(--ink);
       cursor: pointer;
+      margin: 0;
     }
 
     input {
-      margin-right: 4px;
+      margin-right: 6px;
+      accent-color: var(--brand);
+      cursor: pointer;
     }
   }
 
@@ -130,3 +405,51 @@
     background-color: #fdecea;
     color: #8c1d18;
   }
+
+/* ---------------------------------------------------------------------------
+   Small screens
+   The generous desktop padding is most of the card's width on a phone, so it
+   tightens rather than squeezing the fields.
+   --------------------------------------------------------------------------- */
+@media (max-width: 576px) {
+  .page {
+    padding: 20px 12px;
+  }
+
+  .form-panel {
+    padding: 20px 16px 18px;
+  }
+
+  .readme-panel {
+    padding: 18px 16px;
+  }
+
+  .app-header {
+    gap: 12px;
+    padding-bottom: 16px;
+    margin-bottom: 18px;
+
+    h1 {
+      font-size: 24px;
+    }
+  }
+
+  .logo {
+    max-height: 48px;
+  }
+
+  /* Stacked, so the primary action spans the width rather than floating. */
+  .app-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .fetch-btn {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .help-toggle {
+    justify-content: center;
+  }
+}
