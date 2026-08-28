@@ -285,6 +285,93 @@ label {
   color: var(--ink-soft);
 }
 
+/* ---------------------------------------------------------------------------
+   Info affordance
+   ---------------------------------------------------------------------------
+   A hover-only tooltip would hide the text from touch users and from anyone who
+   does not know to hover -- both of which matter for the frontline audience this
+   tool is for. So the text moves behind a visible marker rather than behind
+   nothing: the circled i signals that an explanation exists, and it opens on
+   keyboard focus as well as hover.
+
+   Deliberately NOT on the checkbox label itself. The label is clickable, so
+   putting the trigger there would mean anyone clicking to read toggled the
+   setting instead.
+   --------------------------------------------------------------------------- */
+.info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--brand-line);
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+  font-size: 9px;
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
+  cursor: help;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.info::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  /* Left-anchored rather than centred: the third column sits near the card edge
+     and .form-panel clips overflow, so a centred tooltip would be cut off. */
+  left: -6px;
+  width: 190px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 110ms ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.info:hover::after,
+.info:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.info:focus-visible {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
+}
+
+/* .check is a flex row whose 8px gap is sized for box-to-label. That reads as
+   detached on the marker, which should belong to the label it annotates. */
+.check .info {
+  margin-left: -3px;
+}
+
+/* The last column's marker sits close enough to the card edge that a
+   left-anchored tooltip runs 87px past it -- and .form-panel clips overflow, so
+   it would simply be cut off. Anchor that column's tooltip to its right edge and
+   let it grow inwards instead. Keyed off the column rather than a modifier class
+   so it keeps working if the toggles are reordered. */
+.include-row > [class*='col-']:last-child .info::after {
+  left: auto;
+  right: -6px;
+}
+
 /* The original checkbox ids stay in the DOM so the component's existing
    getCheckedServices() reads keep working and the two paths coexist. Hidden
    without display:none, which would drop them from the form entirely. */

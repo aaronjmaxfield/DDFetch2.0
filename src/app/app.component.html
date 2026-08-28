@@ -334,8 +334,15 @@
                 (change)="onIncludeToggle('chronic', $any($event.target).checked)"
               />
               <label for="showChronicCheckbox">Slow reports &amp; big queries</label>
+              <span
+                class="info"
+                tabindex="0"
+                role="note"
+                aria-label="Brings back the constant report-rendering and oversized-query warnings. Tick it if a slow report or a timeout is the symptom you are chasing."
+                data-tip="Brings back the constant report-rendering and oversized-query warnings. Tick it if a slow report or a timeout is the symptom you are chasing."
+                >i</span
+              >
             </div>
-            <p class="field-hint">For slow reports or timeouts.</p>
           </div>
           <div class="col-md-4">
             <div class="check">
@@ -346,8 +353,15 @@
                 (change)="onIncludeToggle('indexer', $any($event.target).checked)"
               />
               <label for="includeIndexerCheckbox">Search indexer</label>
+              <span
+                class="info"
+                tabindex="0"
+                role="note"
+                aria-label="Adds av.indexer, the service that builds the search index. Tick it for missing search results, or records that never appear in a search."
+                data-tip="Adds av.indexer, the service that builds the search index. Tick it for missing search results, or records that never appear in a search."
+                >i</span
+              >
             </div>
-            <p class="field-hint">For search or indexing problems.</p>
           </div>
           <div class="col-md-4">
             <div class="check">
@@ -358,8 +372,15 @@
                 (change)="onIncludeToggle('emse', $any($event.target).checked)"
               />
               <label for="includeEmseCheckbox">EMSE script logs</label>
+              <span
+                class="info"
+                tabindex="0"
+                role="note"
+                aria-label="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
+                data-tip="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
+                >i</span
+              >
             </div>
-            <p class="field-hint">If you suspect an EMSE script.</p>
           </div>
         </div>
 
