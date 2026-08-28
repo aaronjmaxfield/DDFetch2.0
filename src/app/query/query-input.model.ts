@@ -64,6 +64,26 @@ export interface QueryInput {
    * `undefined` means on. Pass `false` explicitly to get everything.
    */
   hideRoutineChatter?: boolean;
+  /**
+   * Include chronic conditions -- real errors and warnings that are constant in
+   * the environment rather than related to any one search. Defaults to OFF.
+   *
+   * Unlike routine chatter these are genuine failures, so hiding them is always
+   * announced in the warnings. On the busiest Forte agency the slow-report
+   * warning alone is ~60,000 lines in 24 hours, 99.6% of everything remaining
+   * after scoping -- it buries the payment failures beside it.
+   */
+  showChronic?: boolean;
+  /**
+   * Restrict the biz tier to the selected scope category. Defaults to ON when a
+   * category is chosen, because the biz branch is otherwise unbounded.
+   *
+   * Measured on the busiest Forte agency, US PROD, 24 hours: 2,138,287 lines and
+   * 218,581 errors unscoped, against 74,696 and 74 with the payment markers. Of
+   * those 218,581 errors only 74 concern payments, so the scope improves the
+   * signal as much as the volume.
+   */
+  scopeBizTier?: boolean;
 }
 
 export interface QueryResult {

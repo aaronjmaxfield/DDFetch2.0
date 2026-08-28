@@ -92,8 +92,72 @@ export const ROUTINE_CHATTER: NoisePattern[] = [
   },
 ];
 
+/**
+ * Chronic conditions: a SECOND tier, and a different thing entirely.
+ *
+ * These are genuine errors and warnings -- they fail the rule above on purpose.
+ * What makes them separate is that they are constant rather than events: the
+ * same message tens of thousands of times a day, describing a standing
+ * condition in the environment rather than anything the user is investigating.
+ *
+ * The slow-report warning is the example that forced this tier to exist. On the
+ * busiest Forte agency it is ~60,000 warnings in 24 hours, 99.6% of every
+ * warning that survived the payment scope. Leaving it in buries the payment
+ * failures; dropping it silently would violate the one rule that matters.
+ *
+ * So: hidden by default, but NEVER silently. The engine emits a warning naming
+ * what was hidden, and turning it back on is one flag. A frontline user is told
+ * "slow-report warnings are hidden" rather than being left to wonder.
+ */
+export const CHRONIC_PATTERNS: NoisePattern[] = [
+  {
+    phrase: '"report takes more than"',
+    what: 'Slow-report warnings from the reporting adapter',
+  },
+  {
+    phrase: '"It is risky to retrieve too many records"',
+    what: 'Large-result-set SQL warnings',
+  },
+];
+
+/**
+ * Builds an exclusion clause from a pattern list.
+ *
+ * -------------------------------------------------------------------------
+ * READ THIS BEFORE CHANGING A PATTERN TO WILDCARD FORM
+ * -------------------------------------------------------------------------
+ * The rules for positive matching and for negation are OPPOSITE, and getting
+ * the negation wrong empties the entire query rather than failing loudly.
+ *
+ *   POSITIVE  `*token*` is dependable; quoted phrases under-match and sometimes
+ *             match nothing at all. Hence wildcard `bizMarkers`.
+ *
+ *   NEGATION  A wildcard-wrapped MULTI-WORD phrase matches everything, so the
+ *             query returns ZERO rows:
+ *
+ *               -"report takes more than"   -> 14,048 rows   correct
+ *               -*report takes more than*   ->      0 rows   broken
+ *               -*XReport.aspx*             -> 14,048 rows   fine, one token
+ *
+ * So: negations use quoted form for anything containing a space, and wildcards
+ * only for single tokens. Both list entries above are multi-word and quoted for
+ * exactly this reason.
+ */
+function exclusionFrom(patterns: NoisePattern[]): string {
+  if (!patterns.length) return '';
+  return patterns.map((p) => `-${p.phrase}`).join(' AND ');
+}
+
 /** The clause to AND onto a query, or '' when the list is empty. */
 export function routineChatterExclusion(): string {
-  if (!ROUTINE_CHATTER.length) return '';
-  return ROUTINE_CHATTER.map((p) => `-${p.phrase}`).join(' AND ');
+  return exclusionFrom(ROUTINE_CHATTER);
+}
+
+export function chronicExclusion(): string {
+  return exclusionFrom(CHRONIC_PATTERNS);
+}
+
+/** Plain-language summary for the warning shown when chronic patterns are hidden. */
+export function chronicSummary(): string {
+  return CHRONIC_PATTERNS.map((p) => p.what.toLowerCase()).join('; ');
 }

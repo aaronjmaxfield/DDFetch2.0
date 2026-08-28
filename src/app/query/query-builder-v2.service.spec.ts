@@ -31,6 +31,66 @@ describe('QueryBuilderV2Service', () => {
 
     // ------------------------------------------------- A1: service scoping
 
+    it('scopes the biz tier to the chosen category', () => {
+        // The largest single reduction the engine makes. Measured on the busiest
+        // Forte agency in US PROD over 24h: 2,138,287 lines and 218,581 errors
+        // unscoped, against 74,696 and 74 with the payment markers -- and only
+        // those 74 errors concerned payments at all.
+        const { query, warnings } = v2.build(
+            input({ scope: { category: 'payment', option: 'forte' } })
+        );
+
+        expect(query).toContain('*transaction-id*');
+        expect(query).toContain('*invoice*');
+        expect(warnings.some((w) => w.includes('limited to payment-related lines'))).toBe(true);
+    });
+
+    it('leaves the biz tier alone when no category is chosen', () => {
+        // The fast path must not change. No scope means no marker clause.
+        const { query } = v2.build(input({}));
+        expect(query).not.toContain('*transaction-id*');
+        expect(query).not.toContain('*invoice*');
+    });
+
+    it('uses different markers per category, and excludes the too-broad one', () => {
+        const docs = v2.build(input({ scope: { category: 'documents' } })).query;
+        expect(docs).toContain('*DocumentService*');
+        expect(docs).not.toContain('*transaction-id*');
+
+        const capi = v2.build(input({ scope: { category: 'construct' } })).query;
+        expect(capi).toContain('*apis/v4*');
+        // `*capi*` measured 262,391 lines -- too broad, it would undo the scoping.
+        expect(capi).not.toContain('*capi*');
+    });
+
+    it('hides chronic warnings by default but says so', () => {
+        // These are real warnings, so hiding them is announced. The slow-report
+        // one alone was ~60,000 lines in 24h, 99.6% of everything left after
+        // scoping.
+        const on = v2.build(input({}));
+        expect(on.query).toContain('-"report takes more than"');
+        expect(on.warnings.some((w) => w.includes('constant in this environment'))).toBe(true);
+
+        const off = v2.build(input({ showChronic: true }));
+        expect(off.query).not.toContain('report takes more than');
+    });
+
+    it('never wildcard-wraps a multi-word exclusion', () => {
+        /*
+         * Guard on a trap that empties the query rather than failing loudly.
+         * The rules for positive matching and negation are opposite:
+         *
+         *   -"report takes more than"   -> 14,048 rows   correct
+         *   -*report takes more than*   ->      0 rows   matches everything
+         *
+         * Single-token wildcards in a negation are fine; multi-word ones are not.
+         */
+        const { query } = v2.build(input({ scope: { category: 'payment' } }));
+        for (const m of query.matchAll(/-\*([^*]+)\*/g)) {
+            expect(m[1], `negated wildcard "${m[1]}" contains a space`).not.toContain(' ');
+        }
+    });
+
     it('hides routine chatter by default, and can be turned off', () => {
         // Default on, because the useful default is the readable one. Measured on
         // a real Forte search: 1,817 lines to 574, retaining all 81 errors and

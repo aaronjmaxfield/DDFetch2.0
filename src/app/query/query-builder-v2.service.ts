@@ -8,8 +8,12 @@ import {
   ServiceDef,
   ServiceTarget,
 } from './environments.config';
-import { fieldsFor, findOption } from './scopes.config';
-import { routineChatterExclusion } from './noise.config';
+import { fieldsFor, findCategory, findOption } from './scopes.config';
+import {
+  chronicExclusion,
+  chronicSummary,
+  routineChatterExclusion,
+} from './noise.config';
 import { QueryEngine, QueryInput, QueryResult } from './query-input.model';
 
 /**
@@ -112,6 +116,22 @@ export class QueryBuilderV2Service implements QueryEngine {
     if (input.hideRoutineChatter !== false) {
       const exclusion = routineChatterExclusion();
       if (exclusion) query = `${query} AND ${exclusion}`;
+    }
+
+    /*
+     * Chronic conditions are real warnings, so hiding them is announced rather
+     * than silent. On the busiest Forte agency the slow-report warning alone is
+     * ~60,000 lines in 24 hours and 99.6% of everything left after scoping --
+     * it buries the payment failures it sits next to.
+     */
+    if (input.showChronic !== true) {
+      const exclusion = chronicExclusion();
+      if (exclusion) {
+        query = `${query} AND ${exclusion}`;
+        warnings.push(
+          `Hidden because they are constant in this environment rather than related to your search: ${chronicSummary()}. These are real warnings -- turn on "Show chronic warnings" to include them.`
+        );
+      }
     }
 
     return { query, warnings, errors };
@@ -294,11 +314,30 @@ export class QueryBuilderV2Service implements QueryEngine {
      * Excluded rather than removed, because a search or indexing investigation
      * genuinely wants it -- see `includeIndexer` on QueryInput.
      */
-    const scope = input.includeIndexer
-      ? env.hostClause
-      : `${env.hostClause} AND -service:av.indexer`;
+    const scopeParts = [env.hostClause];
+    if (!input.includeIndexer) scopeParts.push('-service:av.indexer');
 
-    return `((${identity.join(' OR ')}) AND ${scope})`;
+    /*
+     * Restrict the biz tier to the chosen category. This is the largest single
+     * reduction the engine makes -- see the bizMarkers note in scopes.config.ts
+     * for the measurements. Without it, picking "Payment" added a payment
+     * service branch and left the entire biz tier wide open, so a busy
+     * production tenant returned over two million lines of which 74 errors
+     * were actually about payments.
+     *
+     * Markers are wildcard form deliberately; quoted phrases under-match on
+     * these logs. Note this is a POSITIVE clause, where wildcards are the
+     * dependable shape -- the opposite rule applies to the exclusions.
+     */
+    const category = findCategory(input.scope?.category);
+    if (category?.bizMarkers?.length && input.scopeBizTier !== false) {
+      scopeParts.push(`(${category.bizMarkers.join(' OR ')})`);
+      warnings.push(
+        `The Civic Platform results are limited to ${category.label.toLowerCase()}-related lines. Clear the Scope dropdown to see the whole tier.`
+      );
+    }
+
+    return `((${identity.join(' OR ')}) AND ${scopeParts.join(' AND ')})`;
   }
 
   // ---------------------------------------------------------------------- CAPI

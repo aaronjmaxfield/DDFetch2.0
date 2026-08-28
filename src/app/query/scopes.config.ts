@@ -81,6 +81,31 @@ export interface ScopeCategory {
   /** Shown for every option in the category. */
   fields?: ScopeField[];
   options: ScopeOption[];
+  /**
+   * Terms that identify biz-tier content belonging to this category.
+   *
+   * This is the single highest-leverage clause in the tool. The biz branch is
+   * otherwise unbounded -- it matches every biz log for the agency in the
+   * window, which for a large production tenant is millions of lines. Measured
+   * on the busiest Forte agency in US PROD over 24 hours:
+   *
+   *   biz tier, unscoped        2,138,287 lines   218,581 errors
+   *   biz tier, payment-scoped     74,696 lines        74 errors
+   *
+   * 96.5% of the volume gone, and the signal improves rather than degrades: of
+   * those 218,581 errors only 74 relate to payments at all, so an unscoped
+   * payment investigation is 99.97% distraction. Every real payment failure in
+   * the window survived -- CreditCardPaymentException, completePayment,
+   * Payment Required, CE_INVOICE_UNPAID.
+   *
+   * Markers are WILDCARD form on purpose. For positive matching, `*token*` is
+   * the dependable shape: quoted phrases silently under-match on these logs and
+   * fail outright on some camelCase tokens (`*getCapTypeByPK*` matches 23,426
+   * lines; `"getCapTypeByPK"` matches nothing).
+   *
+   * Every marker below was measured against that agency rather than guessed.
+   */
+  bizMarkers?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +159,17 @@ export const SCOPES: ScopeCategory[] = [
     id: 'payment',
     label: 'Payment',
     fields: [capId, transactionId, providerTxId],
+    // Measured 24h volumes on the busiest Forte agency: transaction-id 61,081,
+    // forte 7,893, payment 4,525, invoice 1,193, receipt 463, F4PAYMENT 34.
+    bizMarkers: [
+      '*transaction-id*',
+      '*payment*',
+      '*invoice*',
+      '*receipt*',
+      '*forte*',
+      '*F4PAYMENT*',
+      '*convFee*',
+    ],
     options: [
       {
         id: 'forte',
@@ -160,6 +196,20 @@ export const SCOPES: ScopeCategory[] = [
     id: 'documents',
     label: 'Documents',
     fields: [capId],
+    // Measured: document 229,477, EDMS 154,289, DocumentService 150,809,
+    // upload 19,152, attachment 3,319, BDOCUMENT 223, FileKey 48. Documents are
+    // a far larger share of biz volume than payments, so this scope cuts less --
+    // 2.14M down to 92,184 once chatter and chronic patterns go too, against
+    // 13,588 for payments. `*laserfiche*` measured 0 here and is left out.
+    bizMarkers: [
+      '*document*',
+      '*EDMS*',
+      '*DocumentService*',
+      '*attachment*',
+      '*upload*',
+      '*BDOCUMENT*',
+      '*FileKey*',
+    ],
     options: [
       {
         id: 'acds',
@@ -187,6 +237,10 @@ export const SCOPES: ScopeCategory[] = [
   {
     id: 'construct',
     label: 'Construct',
+    // Measured: apis/v4 41,577, restapis 22,137, RecordModel 14,847, INN 570.
+    // `*capi*` measured 262,391 and is deliberately EXCLUDED -- too broad, it
+    // matches unrelated substrings and would undo the scoping.
+    bizMarkers: ['*restapis*', '*apis/v4*', '*RecordModel*', '*INN*'],
     options: [
       {
         id: 'capi',
