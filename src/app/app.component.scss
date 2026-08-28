@@ -176,40 +176,7 @@ label {
   color: var(--ink);
 }
 
-/* Group headings turn what was a flat run of eight rows into named sections.
-   The hairline rule runs from the text to the right edge, which gives the
-   grouping without the boxiness of nested cards. */
-.group-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 12px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--brand-dark);
-  white-space: nowrap;
-
-  &::after {
-    content: '';
-    flex: 1 1 auto;
-    height: 1px;
-    background: var(--line);
-  }
-
-  /* Breathing room above each heading except the first, which already sits
-     under the header rule. */
-  & + .form-row {
-    margin-bottom: 18px;
-  }
-}
-
-.form-row + .group-heading,
-.row + .group-heading {
-  margin-top: 26px;
-}
-
+/* Sub-heading inside a section -- Payments, Documents. */
 .group-label {
   display: block;
   font-size: 12px;
