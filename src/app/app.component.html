@@ -294,89 +294,19 @@
         }
 
         <!--
-          The three hold-outs, in one row. Each adds back a population the
-          engine excludes by default, and the defaults were measured rather than
-          guessed -- see the comments on the component fields.
+          Advanced disclosure. Everything behind it is expert-only: TRACE_ID and
+          Additional Parameters need a Datadog background to use at all, and the
+          three include toggles need you to know what the engine excludes and
+          why. None of it is actionable for someone working from a ticket, so
+          the default form is the fields anyone can fill in, and this one line is
+          the escape hatch.
 
-          Phrased as what the user gets, not as what the filter does: "Slow
-          reports" rather than "chronic patterns", because the person reading it
-          is looking at a ticket, not at our config.
-        -->
-        <div class="row form-row form-row-tight">
-          <div class="col-md-12">
-            <label class="section-label">Also include</label>
-          </div>
-        </div>
+          Hiding the toggles changes no query. The exclusions they re-enable are
+          on by default either way, so this only moves the escape hatches out of
+          the way of people who would not know what to do with them.
 
-        <div class="row form-row include-row">
-          <div class="col-md-4">
-            <div class="check">
-              <input
-                type="checkbox"
-                id="showChronicCheckbox"
-                [checked]="showChronic"
-                (change)="onIncludeToggle('chronic', $any($event.target).checked)"
-              />
-              <label for="showChronicCheckbox">Slow reports &amp; big queries</label>
-              <span
-                class="info"
-                tabindex="0"
-                role="note"
-                aria-label="Brings back the constant report-rendering and oversized-query warnings. Tick it if a slow report or a timeout is the symptom you are chasing."
-                data-tip="Brings back the constant report-rendering and oversized-query warnings. Tick it if a slow report or a timeout is the symptom you are chasing."
-                >i</span
-              >
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="check">
-              <input
-                type="checkbox"
-                id="includeIndexerCheckbox"
-                [checked]="includeIndexer"
-                (change)="onIncludeToggle('indexer', $any($event.target).checked)"
-              />
-              <label for="includeIndexerCheckbox">Search indexer</label>
-              <span
-                class="info"
-                tabindex="0"
-                role="note"
-                aria-label="Adds av.indexer, the service that builds the search index. Tick it for missing search results, or records that never appear in a search."
-                data-tip="Adds av.indexer, the service that builds the search index. Tick it for missing search results, or records that never appear in a search."
-                >i</span
-              >
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="check">
-              <input
-                type="checkbox"
-                id="includeEmseCheckbox"
-                [checked]="includeEmse"
-                (change)="onIncludeToggle('emse', $any($event.target).checked)"
-              />
-              <label for="includeEmseCheckbox">EMSE script logs</label>
-              <span
-                class="info"
-                tabindex="0"
-                role="note"
-                aria-label="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
-                data-tip="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
-                >i</span
-              >
-            </div>
-          </div>
-        </div>
-
-        <!--
-          Advanced disclosure. TRACE_ID and Additional Parameters were two of
-          the first things on the form, and they are the two fields nobody
-          without a Datadog background can act on -- a frontline user reading a
-          ticket has neither a trace ID nor a query term to add. Collapsed they
-          cost one line instead of a full field row.
-
-          The trigger names what is inside rather than just saying "Advanced",
-          so someone who does want TRACE_ID can still find where it went.
+          The trigger names its contents rather than just saying "Advanced", so
+          nothing behind it becomes unfindable.
         -->
         <div class="row form-row form-row-tight">
           <div class="col-md-12">
@@ -390,23 +320,103 @@
             >
               <span class="caret" aria-hidden="true">&#9656;</span>
               Advanced
-              <span class="disclosure-note">TRACE_ID, extra search terms</span>
+              <span class="disclosure-note">TRACE_ID, extra terms, noisy log tiers</span>
             </button>
           </div>
         </div>
 
         @if (showAdvanced) {
-          <div class="row form-row advanced-fields" id="advancedFields">
-            <div class="col-md-6 mb-2">
-              <label for="inputTraceID">TRACE_ID</label>
-              <input type="text" class="form-control" id="inputTraceID" />
-              <p class="field-hint">Overrides everything else on the form.</p>
+          <div class="advanced-fields" id="advancedFields">
+            <div class="row form-row">
+              <div class="col-md-6 mb-2">
+                <label for="inputTraceID">TRACE_ID</label>
+                <input type="text" class="form-control" id="inputTraceID" />
+                <p class="field-hint">Overrides everything else on the form.</p>
+              </div>
+
+              <div class="col-md-6 mb-2">
+                <label for="inputAdditionalParams">Additional Parameters</label>
+                <input type="text" class="form-control" id="inputAdditionalParams" />
+                <p class="field-hint">Extra Datadog terms, space separated.</p>
+              </div>
             </div>
 
-            <div class="col-md-6 mb-2">
-              <label for="inputAdditionalParams">Additional Parameters</label>
-              <input type="text" class="form-control" id="inputAdditionalParams" />
-              <p class="field-hint">Extra Datadog terms, space separated.</p>
+            <!--
+              The three hold-outs. Each adds back a population the engine
+              excludes by default, and the defaults were measured rather than
+              guessed -- see the comments on the component fields.
+
+              Phrased as what the user gets, not as what the filter does: "Slow
+              reports" rather than "chronic patterns", because the person
+              reading it is looking at a ticket, not at our config.
+            -->
+            <div class="row form-row form-row-tight">
+              <div class="col-md-12">
+                <label class="section-label">Also include</label>
+              </div>
+            </div>
+
+            <div class="row form-row include-row">
+              <div class="col-md-4">
+                <div class="check">
+                  <input
+                    type="checkbox"
+                    id="showChronicCheckbox"
+                    [checked]="showChronic"
+                    (change)="onIncludeToggle('chronic', $any($event.target).checked)"
+                  />
+                  <!-- Short enough not to wrap inside the tinted group, which
+                       is narrower than a full form row. The tooltip carries the
+                       oversized-query half of it. -->
+                  <label for="showChronicCheckbox">Slow reports</label>
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Brings back the constant report-rendering and oversized-query warnings. Tick it if a slow report or a timeout is the symptom you are chasing."
+                    data-tip="Brings back the constant report-rendering and oversized-query warnings. Tick it if a slow report or a timeout is the symptom you are chasing."
+                    >i</span
+                  >
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="check">
+                  <input
+                    type="checkbox"
+                    id="includeIndexerCheckbox"
+                    [checked]="includeIndexer"
+                    (change)="onIncludeToggle('indexer', $any($event.target).checked)"
+                  />
+                  <label for="includeIndexerCheckbox">Search indexer</label>
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Adds av.indexer, the service that builds the search index. Tick it for missing search results, or records that never appear in a search."
+                    data-tip="Adds av.indexer, the service that builds the search index. Tick it for missing search results, or records that never appear in a search."
+                    >i</span
+                  >
+                </div>
+              </div>
+              <div class="col-md-4">
+                <div class="check">
+                  <input
+                    type="checkbox"
+                    id="includeEmseCheckbox"
+                    [checked]="includeEmse"
+                    (change)="onIncludeToggle('emse', $any($event.target).checked)"
+                  />
+                  <label for="includeEmseCheckbox">EMSE script logs</label>
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
+                    data-tip="Adds the script engine's own log. Tick it when an EMSE script may be firing, failing, or blocking the action the user took."
+                    >i</span
+                  >
+                </div>
+              </div>
             </div>
           </div>
         }

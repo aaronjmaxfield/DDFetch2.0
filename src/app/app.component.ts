@@ -78,20 +78,26 @@ export class AppComponent {
   }
 
   /**
-   * TRACE_ID and Additional Parameters live behind this, collapsed by default.
-   * Neither is actionable without a Datadog background, and an unexplained
-   * field costs every user attention while helping only a few.
+   * Every expert control lives behind this, collapsed by default: TRACE_ID,
+   * Additional Parameters, and the three include toggles. None of them is
+   * actionable without knowing how the engine scopes and excludes, and an
+   * unexplained control costs every user attention while helping only a few.
    */
   showAdvanced = false;
 
   toggleAdvanced() {
     this.showAdvanced = !this.showAdvanced;
     if (!this.showAdvanced) {
-      // Collapsing has to clear them. A TRACE_ID search ignores every other
-      // field on the form, so a value left behind in a collapsed section would
-      // silently take over the next Fetch with nothing on screen to explain it.
+      // Closing resets everything behind it, so the collapsed form always means
+      // exactly what it shows. Otherwise a setting nobody can see changes the
+      // results: a TRACE_ID search ignores every other field on the form, and
+      // the include toggles widen the query with nothing on screen to say so.
       this.traceId = '';
       this.additionalParams = '';
+      this.showChronic = false;
+      this.includeIndexer = false;
+      this.includeEmse = false;
+      this.previews = [];
     }
   }
 

@@ -312,6 +312,13 @@ label {
   color: var(--ink-soft);
 }
 
+/* Unlike .scope-fields this wraps several rows rather than being one, so the
+   Bootstrap gutters have to be cancelled on the children instead. */
+.advanced-fields > .row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
 /* The revealed fields are tinted so it reads as one disclosed group rather than
    more form rows appearing from nowhere. */
 .scope-fields,

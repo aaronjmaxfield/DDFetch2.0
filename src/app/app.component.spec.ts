@@ -211,6 +211,24 @@ describe('AppComponent (characterization)', () => {
         expect(component.showAdvanced).toBe(false);
         expect(fixture.nativeElement.querySelector('#inputTraceID')).toBeNull();
         expect(fixture.nativeElement.querySelector('#inputAdditionalParams')).toBeNull();
+        expect(fixture.nativeElement.querySelector('#showChronicCheckbox')).toBeNull();
+        expect(fixture.nativeElement.querySelector('#includeIndexerCheckbox')).toBeNull();
+        expect(fixture.nativeElement.querySelector('#includeEmseCheckbox')).toBeNull();
+    });
+
+    it('resets the include toggles when the advanced section is collapsed', () => {
+        component.showAdvanced = true;
+        fixture.detectChanges();
+        check('showChronicCheckbox');
+        check('includeIndexerCheckbox');
+        expect(component.showChronic).toBe(true);
+        expect(component.includeIndexer).toBe(true);
+
+        component.toggleAdvanced(); // collapse
+
+        expect(component.showChronic).toBe(false);
+        expect(component.includeIndexer).toBe(false);
+        expect(component.includeEmse).toBe(false);
     });
 
     it('drops a typed trace ID when the advanced section is collapsed again', () => {
