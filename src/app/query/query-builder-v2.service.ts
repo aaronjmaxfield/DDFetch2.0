@@ -8,6 +8,7 @@ import {
   ServiceDef,
   ServiceTarget,
 } from './environments.config';
+import { fieldsFor, findOption } from './scopes.config';
 import { QueryEngine, QueryInput, QueryResult } from './query-input.model';
 
 /**
@@ -45,7 +46,19 @@ export class QueryBuilderV2Service implements QueryEngine {
       return { query: '', warnings, errors };
     }
 
-    const services = this.resolveServices(input.additionalServices, errors);
+    /*
+     * A scoped selection contributes the same additional service the checkboxes
+     * used to, so the service branch is reused rather than reimplemented. The
+     * union is deliberate: the checkbox path still works, which is what keeps
+     * this additive rather than a migration.
+     */
+    const scopeOption = findOption(input.scope?.category, input.scope?.option);
+    const requestedServices = [...input.additionalServices];
+    if (scopeOption?.serviceUi && !requestedServices.includes(scopeOption.serviceUi)) {
+      requestedServices.push(scopeOption.serviceUi);
+    }
+
+    const services = this.resolveServices(requestedServices, errors);
     if (errors.length) return { query: '', warnings, errors };
 
     const agency = input.servProvCode.trim();
@@ -67,10 +80,60 @@ export class QueryBuilderV2Service implements QueryEngine {
 
     let query = branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];
 
+    /*
+     * Scoped clauses narrow the whole query rather than joining the OR, because
+     * an identifier is a statement about which event you want, not about which
+     * tier it came from. A CAP ID should cut across biz, ACA and the payment
+     * adapter at once.
+     */
+    for (const clause of this.buildScopeClauses(input, env, agency, warnings)) {
+      query = `${query} AND ${clause}`;
+    }
+
+    if (scopeOption?.providerUrn) {
+      /*
+       * `OR -@PROVIDER:*` is load-bearing. Only ~50% of payment-adapter lines
+       * carry the attribute -- 11 of 20 on one measured transaction, 16 of 27 on
+       * another -- so a bare AND would cut the trace in half. This form removed
+       * exactly the other providers' lines and kept both Forte traces whole.
+       */
+      query = `${query} AND (@PROVIDER:"${scopeOption.providerUrn}" OR -@PROVIDER:*)`;
+    }
+
     const params = this.formatAdditionalParams(input.additionalParams);
     if (params) query = `${query} AND ${params}`;
 
     return { query, warnings, errors };
+  }
+
+  /** One clause per filled-in scoped field, plus any warnings they raise. */
+  private buildScopeClauses(
+    input: QueryInput,
+    env: EnvironmentDef,
+    agency: string,
+    warnings: string[]
+  ): string[] {
+    const values = input.scope?.fields;
+    if (!values) return [];
+
+    const ctx = {
+      agencyUpper: agency.toUpperCase(),
+      agencyLower: agency.toLowerCase(),
+      env,
+    };
+
+    const clauses: string[] = [];
+    for (const field of fieldsFor(input.scope?.category, input.scope?.option)) {
+      const raw = values[field.id];
+      if (!raw || !raw.trim()) continue;
+
+      const warning = field.warn?.(raw);
+      if (warning) warnings.push(warning);
+
+      const clause = field.clause(raw, ctx);
+      if (clause) clauses.push(clause);
+    }
+    return clauses;
   }
 
   // ------------------------------------------------------------------ biz tier

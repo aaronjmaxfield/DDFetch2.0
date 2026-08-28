@@ -3,6 +3,13 @@ import { environmentsFor } from './query/environments.config';
 import { LegacyQueryBuilderService } from './query/legacy-query-builder.service';
 import { QueryBuilderV2Service } from './query/query-builder-v2.service';
 import { EngineId, QueryInput, QueryResult } from './query/query-input.model';
+import {
+  fieldsFor,
+  findCategory,
+  ScopeField,
+  ScopeOption,
+  SCOPES,
+} from './query/scopes.config';
 
 /** Which engine(s) to run for a submission. */
 export type EngineMode = 'v2' | 'legacy' | 'compare';
@@ -184,7 +191,67 @@ export class AppComponent {
       applications: this.applicationsUsed,
       additionalServices: this.additionalServices,
       additionalParams: this.additionalParams,
+      // Omitted entirely when nothing is scoped, so the engine takes its
+      // original path and the fast search is byte-identical to before.
+      scope: this.scopeCategory
+        ? {
+            category: this.scopeCategory,
+            option: this.scopeOption || undefined,
+            fields: this.scopeFieldValues,
+          }
+        : undefined,
     };
+  }
+
+  // ------------------------------------------------------------ scoped search
+
+  /** Category dropdown options. */
+  readonly scopeCategories = SCOPES;
+
+  scopeCategory = '';
+  scopeOption = '';
+  /** Keyed by ScopeField.id. */
+  scopeFieldValues: Record<string, string> = {};
+
+  /** Provider/service options for the chosen category. */
+  get scopeOptions(): ScopeOption[] {
+    return findCategory(this.scopeCategory)?.options ?? [];
+  }
+
+  /** The fields to render right now -- category-level plus option-level. */
+  get scopeFields(): ScopeField[] {
+    return fieldsFor(this.scopeCategory, this.scopeOption);
+  }
+
+  onScopeCategoryChange(value: string) {
+    this.scopeCategory = value;
+    // Drop the narrower selections rather than carrying a stale provider or a
+    // field that no longer exists in the new category.
+    this.scopeOption = '';
+    this.scopeFieldValues = {};
+    this.previews = [];
+  }
+
+  onScopeOptionChange(value: string) {
+    this.scopeOption = value;
+    // Category-level values survive; option-level ones may not exist any more.
+    const live = new Set(this.scopeFields.map((f) => f.id));
+    for (const key of Object.keys(this.scopeFieldValues)) {
+      if (!live.has(key)) delete this.scopeFieldValues[key];
+    }
+    this.previews = [];
+  }
+
+  onScopeFieldInput(id: string, value: string) {
+    this.scopeFieldValues[id] = value;
+    this.previews = [];
+  }
+
+  clearScope() {
+    this.scopeCategory = '';
+    this.scopeOption = '';
+    this.scopeFieldValues = {};
+    this.previews = [];
   }
 
   onTimeframeChange() {

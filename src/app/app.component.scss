@@ -248,6 +248,55 @@ label {
   color: var(--ink);
 }
 
+/* ---------------------------------------------------------------------------
+   Scoped search
+   --------------------------------------------------------------------------- */
+
+/* Marks a control as skippable, so the fast path is visibly optional rather
+   than something the user has to reason about. */
+.opt {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--brand-dark);
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-line);
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+/* The revealed fields are tinted so it reads as one disclosed group rather than
+   more form rows appearing from nowhere. */
+.scope-fields {
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  padding: 10px 12px 4px;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.field-hint {
+  margin: 3px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+/* The original checkbox ids stay in the DOM so the component's existing
+   getCheckedServices() reads keep working and the two paths coexist. Hidden
+   without display:none, which would drop them from the form entirely. */
+.scope-legacy-inputs {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* Sub-heading inside a section -- Payments, Documents. */
 .group-label {
   display: block;

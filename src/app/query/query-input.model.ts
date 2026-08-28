@@ -38,6 +38,20 @@ export interface QueryInput {
    * for the rows where it is the only biz log that exists.
    */
   includeEmse?: boolean;
+  /**
+   * Scoped search, the progressive-disclosure replacement for the additional-
+   * service checkboxes. See scopes.config.ts.
+   *
+   * Entirely optional: when `category` is unset the engine behaves exactly as it
+   * did, so the fast path -- tick Civic Platform, hit Fetch -- gains no clicks.
+   * When set, `option` selects the provider or service and `fields` carries the
+   * scoped identifiers keyed by ScopeField.id.
+   */
+  scope?: {
+    category?: string;
+    option?: string;
+    fields?: Record<string, string>;
+  };
 }
 
 export interface QueryResult {

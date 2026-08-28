@@ -238,55 +238,83 @@
           </div>
         </div>
 
-        <!-- Additional services -->
-        <div class="row form-row form-row-tight">
-          <div class="col-md-12">
-            <label class="section-label">Additional Services</label>
-          </div>
-        </div>
+        <!--
+          Scoped search. Replaces the flat additional-service checkbox block --
+          a section label, two group labels and five checkboxes that cost ~150px
+          of height whether or not you wanted any of it.
 
+          Collapsed, this is one row. Expanded, it only grows once the user has
+          asked it to, which is what keeps the no-scrollbar goal reachable while
+          adding fields. The application checkboxes above are untouched, so
+          "just biz and ACA" is still zero extra clicks.
+
+          The hidden inputs keep the old checkbox ids in the DOM. The component
+          still reads additionalServices through them, so the checkbox path and
+          the scoped path coexist and nothing downstream had to change.
+        -->
         <div class="row form-row">
           <div class="col-md-6">
-            <label class="group-label">Payments</label>
-            <div class="check">
-              <input
-                type="checkbox"
-                id="forteCheckbox"
-                name="additionalServices[]"
-                value="Forte"
-              />
-              <label for="forteCheckbox">Forte</label>
-            </div>
-            <div class="check">
-              <input
-                type="checkbox"
-                id="paypalCheckbox"
-                name="additionalServices[]"
-                value="Paypal Commerce"
-              />
-              <label for="paypalCheckbox">Paypal Commerce</label>
-            </div>
-            <div class="check">
-              <input
-                type="checkbox"
-                id="securePayCheckbox"
-                name="additionalServices[]"
-                value="SecurePay"
-              />
-              <label for="securePayCheckbox">SecurePay</label>
-            </div>
+            <label for="scopeCategory">Scope <span class="opt">optional</span></label>
+            <!-- [selected] on the options, not [value] on the select. Binding
+                 [value] leaves a native select showing its first option however
+                 the state changes -- the fields below would appear while the
+                 dropdown still read "-- none --". -->
+            <select
+              class="form-control"
+              id="scopeCategory"
+              (change)="onScopeCategoryChange($any($event.target).value)"
+            >
+              <option value="" [selected]="!scopeCategory">-- none --</option>
+              @for (c of scopeCategories; track c.id) {
+                <option [value]="c.id" [selected]="c.id === scopeCategory">{{ c.label }}</option>
+              }
+            </select>
           </div>
-          <div class="col-md-6">
-            <label class="group-label">Documents</label>
-            <div class="check">
-              <input type="checkbox" id="acdsCheckbox" name="additionalServices[]" value="ACDS" />
-              <label for="acdsCheckbox">ACDS</label>
+
+          @if (scopeOptions.length) {
+            <div class="col-md-6">
+              <label for="scopeOption">{{ scopeCategory === 'payment' ? 'Provider' : 'Service' }}</label>
+              <select
+                class="form-control"
+                id="scopeOption"
+                (change)="onScopeOptionChange($any($event.target).value)"
+              >
+                <option value="" [selected]="!scopeOption">-- all --</option>
+                @for (o of scopeOptions; track o.id) {
+                  <option [value]="o.id" [selected]="o.id === scopeOption">{{ o.label }}</option>
+                }
+              </select>
             </div>
-            <div class="check">
-              <input type="checkbox" id="adsCheckbox" name="additionalServices[]" value="ADS" />
-              <label for="adsCheckbox">ADS</label>
-            </div>
+          }
+        </div>
+
+        @if (scopeFields.length) {
+          <div class="row form-row scope-fields">
+            @for (f of scopeFields; track f.id) {
+              <div class="col-md-6 mb-2">
+                <label [for]="'scope-' + f.id">{{ f.label }}</label>
+                <input
+                  type="text"
+                  class="form-control"
+                  [id]="'scope-' + f.id"
+                  [placeholder]="f.placeholder || ''"
+                  [value]="scopeFieldValues[f.id] || ''"
+                  (input)="onScopeFieldInput(f.id, $any($event.target).value)"
+                />
+                @if (f.hint) {
+                  <p class="field-hint">{{ f.hint }}</p>
+                }
+              </div>
+            }
           </div>
+        }
+
+        <div class="scope-legacy-inputs">
+          <input type="checkbox" id="forteCheckbox" name="additionalServices[]" value="Forte" />
+          <input type="checkbox" id="paypalCheckbox" name="additionalServices[]" value="Paypal Commerce" />
+          <input type="checkbox" id="securePayCheckbox" name="additionalServices[]" value="SecurePay" />
+          <input type="checkbox" id="acdsCheckbox" name="additionalServices[]" value="ACDS" />
+          <input type="checkbox" id="adsCheckbox" name="additionalServices[]" value="ADS" />
         </div>
 
         <!-- Query engine selector -->
