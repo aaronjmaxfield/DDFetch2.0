@@ -115,9 +115,31 @@ export interface ScopeOption {
   fields?: ScopeField[];
 }
 
+/**
+ * Per-scope help, shown in the Instructions panel when that scope is selected.
+ *
+ * Lives in the side panel rather than on the form on purpose: the panel is a
+ * sibling of the card, so this costs zero card height, and the form is already
+ * fighting for vertical space once a scope and Advanced are both open.
+ *
+ * Written as symptoms rather than as features. The audience is someone holding a
+ * ticket, so "the citizen was charged but the record still shows a balance" is
+ * useful and "scopes the biz tier by payment markers" is not.
+ */
+export interface ScopeGuidance {
+  /** One sentence on what this scope returns. */
+  what: string;
+  /** Ticket-shaped symptoms this scope suits. */
+  useWhen: string[];
+  /** Traps, phrased as instructions rather than explanations. */
+  notes?: string[];
+}
+
 export interface ScopeCategory {
   id: string;
   label: string;
+  /** Shown in the Instructions panel while this scope is selected. */
+  guidance?: ScopeGuidance;
   /** Shown for every option in the category. */
   fields?: ScopeField[];
   options: ScopeOption[];
@@ -193,7 +215,7 @@ const ALT_ID = /^\d{2}[A-Za-z]{2,}-\d{6,}$/;
 const capId: ScopeField = {
   id: 'capId',
   label: 'CAP ID',
-  placeholder: '26ABC-00000-00014',
+  placeholder: '26ABC-00000-00001',
   hint: 'The 5-5-5 CAP ID, not the record number you see on screen -- the record number does not appear in any log.',
   clause: (v) => `*${v.trim()}*`,
   warn: (v) =>
@@ -204,9 +226,14 @@ const capId: ScopeField = {
 
 const transactionId: ScopeField = {
   id: 'transactionId',
-  label: 'Transaction ID',
-  placeholder: 'CRC-6422 or the full urn',
-  hint: 'Accepts the short form or the full urn. Both casings are searched, because AA logs it uppercase and ACA lowercase.',
+  /*
+   * Named for WHOSE id it is. "Transaction ID" and "Provider transaction ID"
+   * sitting side by side did not say which was which, and they come from
+   * different places -- this one from Accela, the other off the gateway.
+   */
+  label: "Accela's transaction ID",
+  placeholder: 'AGCY-12345',
+  hint: "The transaction number Accela generates. Short form or the full urn both work, and both casings are searched, because the back office writes it uppercase and Citizen Access lowercase. This is NOT the number on the cardholder's receipt.",
   clause: (v) => {
     const t = v.trim();
     // Both casings: the facet is case sensitive and the platform decides which
@@ -219,9 +246,9 @@ const transactionId: ScopeField = {
 
 const providerTxId: ScopeField = {
   id: 'providerTxId',
-  label: 'Provider transaction ID',
-  placeholder: 'trn_f373ed08... or 1B546634LK055843D',
-  hint: "The gateway's own reference, from the payment receipt or the provider portal.",
+  label: "Gateway's transaction ID",
+  placeholder: 'trn_0000aaaa-11bb-... or 1A234567BC890123D',
+  hint: "The gateway's own reference, not Accela's. This is the one printed on the cardholder's receipt and shown in the provider's portal, so it is usually what a customer can give you.",
   clause: (v) => `*${v.trim()}*`,
 };
 
@@ -237,6 +264,20 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'payment',
     label: 'Payment',
+    guidance: {
+      what: 'Every tier a payment touches: the Citizen Access page the payer used, the biz tier that applied the money to the record, and the provider adapter.',
+      useWhen: [
+        'The citizen was charged but the record still shows a balance',
+        'No receipt appeared, or the page hung and then failed',
+        'A payment was taken twice',
+        'A refund, void or ACH return did not come through',
+      ],
+      notes: [
+        'The record number on the screen does not appear in payment logs. Use the 5-5-5 CAP ID from the record URL.',
+        'If the agency uses a gateway that is not in the list, choose Custom / third-party adapter -- that covers all 115 of them.',
+        'An IVR or kiosk payment produces no adapter logs at all, so an empty result there is expected rather than a sign nothing happened.',
+      ],
+    },
     fields: [capId, transactionId, providerTxId],
     // Measured 24h volumes on the busiest Forte agency: transaction-id 61,081,
     // forte 7,893, payment 4,525, invoice 1,193, receipt 463, F4PAYMENT 34.
@@ -364,7 +405,7 @@ const CATEGORIES: ScopeCategory[] = [
           {
             id: 'adapterName',
             label: 'Adapter name',
-            placeholder: 'Paymentus_prod, CEPAS_2_PRD, TellerOnline_Prod',
+            placeholder: 'SomeGateway_prod',
             /*
              * The hint carries the discovery query because that is the single
              * most useful thing found in the whole audit: nobody can guess a
@@ -403,6 +444,18 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'documents',
     label: 'Documents',
+    guidance: {
+      what: 'Upload, download and preview activity across the document tiers.',
+      useWhen: [
+        'A document will not open or download',
+        'An upload looked like it worked but the file is not on the record',
+        'Preview fails while download still works',
+      ],
+      notes: [
+        'North American agencies are almost always on ADS and APAC agencies almost always on ACDS. If one returns nothing, try the other before concluding anything.',
+        'ADS records what was requested, not whether it worked -- practically every line is an HTTP 200, and agency-scoped ADS searches return no errors at all by design.',
+      ],
+    },
     fields: [capId],
     // Measured: document 229,477, EDMS 154,289, DocumentService 150,809,
     // upload 19,152, attachment 3,319, BDOCUMENT 223, FileKey 48. Documents are
@@ -434,7 +487,7 @@ const CATEGORIES: ScopeCategory[] = [
             // is the only per-document handle on that tier.
             id: 'fileKey',
             label: 'File key',
-            placeholder: 'FileKey value from the download URL',
+            placeholder: '0000aaaa-11bb-22cc-33dd-444444eeeeee',
             hint: 'ADS logs the document key in the access-log query string.',
             clause: (v) => `*FileKey=${v.trim()}*`,
           },
@@ -445,6 +498,19 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'gis',
     label: 'GIS / Parcels',
+    guidance: {
+      what: 'Parcel, address, owner and map-service activity, including the GIS bridge.',
+      useWhen: [
+        'Parcel or owner information is missing from a record',
+        'An address or parcel search returns nothing',
+        'The map will not load, or loads without data',
+      ],
+      notes: [
+        'Parcel number formats are agency-specific. Paste it exactly as the agency writes it.',
+        'A parcel with no conditions is logged as an error and hidden by default. That is normal, not your problem.',
+        'One GIS sync failure emits about seven lines, so counts look worse than they are.',
+      ],
+    },
     /*
      * The "60% is one tenant" reading that nearly killed this category was an
      * artefact of the word "parcel". LANE_CO holds 812,555 of the estate's
@@ -482,8 +548,8 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'parcelNumber',
         label: 'Parcel number',
-        placeholder: '159-211-12, 04704452, 016A00250026',
-        hint: 'Formats are agency-specific. Paste it exactly as the agency writes it.',
+        placeholder: '123-456-78, or 01234567',
+        hint: 'Every agency formats these differently -- dashes, leading zeros and letters all vary. Paste it exactly as the agency writes it rather than tidying it up.',
         clause: (v) => `*${v.trim()}*`,
         /*
          * Load-bearing, not a refinement. A parcel reaches parcel work through
@@ -496,8 +562,8 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'capIdForParcels',
         label: 'CAP ID',
-        placeholder: '26ABC-00000-01304',
-        hint: 'Finds the parcels attached to a record.',
+        placeholder: '26ABC-00000-00001',
+        hint: 'The 5-5-5 CAP ID. Finds the parcels attached to that record.',
         clause: (v) => `*${v.trim()}*`,
         // Same reason: CAP REC26-00000-03D2V has 29 lines, 0 scoped, 1 with this.
         chatterExceptions: ['"Request path is:"'],
@@ -505,7 +571,7 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'mapService',
         label: 'Map service',
-        placeholder: 'COHB',
+        placeholder: 'AGENCYGIS',
         hint: 'The agency GIS map service name, from the GIS configuration.',
         // A colon inside a wildcard is parsed as a facet: `*Map Service: COHB*`
         // returns 0, the quoted form returns 285.
@@ -517,6 +583,19 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'emse',
     label: 'EMSE scripts',
+    guidance: {
+      what: "Script activity, including the script engine's own log file.",
+      useWhen: [
+        'An action was cancelled with a message the agency did not expect',
+        'A script should have fired and nothing happened',
+        'A record changed in a way the user says they did not do',
+      ],
+      notes: [
+        'Script failures are logged as INFO, not as errors. Filtering by error status will show you nothing -- search the script name or the trace ID instead.',
+        'The short event codes (ASA, PRA, WTUA, ACUA) are not searchable terms; they match unrelated text. Use the script name.',
+        'Print output from a BATCH script goes to the batch job record, not here.',
+      ],
+    },
     /*
      * Real category, not one broken tenant: `*aa.emse* status:error` reaches 388
      * distinct agencies in 24h. LANE_CO's 58% share is a single defect,
@@ -551,7 +630,7 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'scriptOrEvent',
         label: 'Script or event name',
-        placeholder: 'ISB:PERMITTING, or the script name',
+        placeholder: 'AREA:MODULE, or the script name',
         hint: 'Use the script name. The short event codes are not searchable terms -- ASA alone matches 1,067,976 unrelated lines.',
         // A colon inside a wildcard is parsed as a facet and returns HTTP 400,
         // so a value containing one switches to the quoted form.
@@ -585,6 +664,18 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'records',
     label: 'Records',
+    guidance: {
+      what: 'Record creation and the record lifecycle in the biz tier.',
+      useWhen: [
+        'A record was created without a parcel, contact or fee',
+        'Creating a record fails or hangs',
+        'A record is stuck in a status the workflow should have moved on',
+      ],
+      notes: [
+        'Type the record type if you know it -- that is what brings in the record-type evidence, which is otherwise held back because it arrives with a known defect attached.',
+        'Either the CAP ID or the record number works here, unlike payments.',
+      ],
+    },
     /*
      * The chronic problem here is THREE separate defects, not one, and two of
      * the names in circulation were wrong. `INNHelper.doINNNRecordModel()` is
@@ -637,8 +728,8 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'recordType',
         label: 'Record type',
-        placeholder: 'BLD_GENERAL',
-        hint: 'The record type as configured, not the display label.',
+        placeholder: 'ABC_GENERAL',
+        hint: 'The record type as configured (module and type joined by an underscore), not the label shown on screen.',
         clause: (v) => `*${v.trim()}*`,
         /*
          * These two are here rather than in the category markers on purpose. As
@@ -655,6 +746,18 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'batch',
     label: 'Batch jobs',
+    guidance: {
+      what: 'Batch job scheduling and execution, and the scheduler itself.',
+      useWhen: [
+        'A nightly batch did not run',
+        'A batch ran but processed nothing',
+        'Batch output is missing or only partly there',
+      ],
+      notes: [
+        'Three different failures look the same from the outside: never scheduled, scheduled and failed, or ran and did nothing. The job dump line tells you which.',
+        'There is no separate job ID. The name carries it, and some job names are just numbers.',
+      ],
+    },
     /*
      * The most evenly distributed of the new categories, and the strongest
      * evidence of a genuine estate-wide problem: US PROD batch errors 224,057
@@ -689,15 +792,15 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'batchJobName',
         label: 'Batch job name',
-        placeholder: 'BATCH_EH_AGING_CREATESETS, or a number',
+        placeholder: 'BATCH_EXAMPLE_JOB, or a number',
         hint: 'There is no separate job ID -- the name carries it, and some job names are numbers. Note that EMSE print output from a batch script goes to the batch job output record, not to emse.log.',
         clause: (v) => `*${v.trim()}*`,
       },
       {
         id: 'batchScheduledDate',
         label: 'Scheduled date',
-        placeholder: '2026-08-28',
-        hint: 'Matched against the StartDate in the job dump.',
+        placeholder: '2026-01-31',
+        hint: 'Format it as the job dump does, YYYY-MM-DD. Matched against the StartDate on the job line.',
         clause: (v) => `*StartDate=${v.trim()}*`,
       },
     ],
@@ -706,6 +809,18 @@ const CATEGORIES: ScopeCategory[] = [
   {
     id: 'reporting',
     label: 'Reports',
+    guidance: {
+      what: 'Report generation across every report engine -- SSRS, Crystal, Ad Hoc and Insights.',
+      useWhen: [
+        'A report times out or never finishes',
+        'A report errors as soon as it is opened',
+        'A report is assigned to a record type but will not run',
+      ],
+      notes: [
+        'Reporting problems are WARNINGS, not errors. If you filter this result by error status you will hide the thing you are looking for.',
+        'An empty report is not logged anywhere. The logs cannot tell you why a report returned no rows.',
+      ],
+    },
     /*
      * Five engines behind two message shapes. SSRS, Crystal, Ad Hoc, Insights
      * and agency-custom REST services all funnel through
@@ -749,22 +864,22 @@ const CATEGORIES: ScopeCategory[] = [
       {
         id: 'reportName',
         label: 'Report name',
-        placeholder: 'cReceiptLee_All_ACA_new',
-        hint: 'As the user sees it. Spaces are safe here.',
+        placeholder: 'MyReport_ACA_v2',
+        hint: 'Exactly as it is named in the report configuration. Spaces are safe here.',
         clause: (v) => `*${v.trim()}*`,
       },
       {
         id: 'reportRecord',
         label: 'Record number or CAP ID',
-        placeholder: '26ABC-00000-01304',
+        placeholder: '26ABC-00000-00001',
         hint: 'Reports are the one place the on-screen record number does appear, so either form works.',
         clause: (v) => `*${v.trim()}*`,
       },
       {
         id: 'reportId',
         label: 'Report ID',
-        placeholder: '1267',
-        hint: 'Numeric ID from the report configuration.',
+        placeholder: '1234',
+        hint: 'The numeric ID from the report configuration, not the report name.',
         // `*reportID : 1267*` is HTTP 400 because of the colon, not the space --
         // verified that `*a : b*` also 400s.
         clause: (v) => `("reportID : ${v.trim()}" OR *reportID=${v.trim()}*)`,

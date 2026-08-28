@@ -24,35 +24,57 @@
 <div class="page">
   @if (!readmeHidden) {
     <aside class="panel readme-panel">
+      <!--
+        Scope-specific help first, because it is the only part that changes and
+        the only part that answers "did I pick the right thing?". Written as
+        ticket symptoms rather than as feature descriptions.
+      -->
+      @if (activeGuidance) {
+        <div class="scope-help">
+          <strong>{{ activeScopeLabel }}</strong>
+          <p>{{ activeGuidance.what }}</p>
+          <p class="scope-help-label">Use it when:</p>
+          <ul>
+            @for (u of activeGuidance.useWhen; track u) {
+              <li>{{ u }}</li>
+            }
+          </ul>
+          @if (activeGuidance.notes?.length) {
+            <p class="scope-help-label">Worth knowing:</p>
+            <ul>
+              @for (n of activeGuidance.notes; track n) {
+                <li>{{ n }}</li>
+              }
+            </ul>
+          }
+        </div>
+      }
+
       <strong>Instructions:</strong>
         <ol>
           <li>You must already be signed into DataDog in your browser for this to work.</li>
           <li>
             <code>ServProvCode</code>, <code>Host</code>, <code>Environment</code> and
-            <code>Begin/End Timestamp</code> are required fields.
+            <code>Begin/End Timestamp</code> are required. Everything else is optional.
           </li>
           <li>
-            If you are searching for a <code>TRACE_ID</code>, all other fields are ignored. You do
-            not need to erase them or make other selections.
+            <strong>Leave Scope on <code>-- none --</code> and nothing is filtered out.</strong> You
+            get everything logged for that agency and environment, which is deliberate: you can then
+            narrow down inside DataDog and be certain nothing was removed before you looked.
           </li>
           <li>
-            When searching for additional parameters, if your parameter has a space in it, surround
-            it with quotes <code>""</code>.
-          </li>
-          <li>When searching for multiple additional parameters, put a space between each one.</li>
-        </ol>
-
-        <strong>Query engine:</strong>
-        <ol>
-          <li>
-            <code>Compare both</code> shows the old and new query side by side without opening
-            either, so you can check the new one before trusting it.
+            <strong>Pick a Scope once you know what you are investigating.</strong> That is what
+            removes the routine noise. On a busy agency it is the difference between three million
+            lines and twenty thousand.
           </li>
           <li>
-            <code>New (v2)</code> scopes payment and document services by agency and environment.
-            The old engine did not, which is why those searches returned every tenant's logs.
+            If a search comes back empty, that is a result worth doubting. Widen it before you
+            conclude nothing happened -- clear the Scope, or check you have the right environment.
           </li>
-          <li><code>Legacy</code> reproduces the old queries exactly, as a fallback.</li>
+          <li>
+            Anything older than 15 days redirects to the rehydration page. When rehydrating, do not
+            add extra search terms -- rehydrate everything, then filter in DataDog.
+          </li>
         </ol>
 
         <strong>Tips:</strong>
@@ -63,8 +85,9 @@
             without it will often miss the line you are looking for.
           </li>
           <li>
-            If searching for something in relation to a specific record, always search for the Full
-            CapID, not the Alt-Id (Custom Id).
+            For anything tied to a record, use the full CAP ID rather than the record number the
+            customer quotes. Payments, documents and scripts all log the CAP ID. Reports and ADS are
+            the exceptions -- they do log the record number.
           </li>
           <li>
             If searching for something in relation to a specific user, search by the username or
@@ -72,20 +95,14 @@
             For an ACA user, search their email or PUBLICUSER ID.
           </li>
           <li>
-            Never assume that searching for a specific parameter will bring up related logging.
-            Sometimes logs don't contain the value you're searching for but are still related.
+            Never assume a search for one value brings up everything related to it. Plenty of
+            relevant lines do not contain the value you searched for -- find one line, then search
+            its <code>&#64;TRACE_ID</code> to get the whole request.
           </li>
           <li>
-            Use additional parameters to find logs that you identify are related. Once you find a
-            related log, filter for just the <code>&#64;TRACE_ID:</code> of that log to see it in its
-            full context.
-          </li>
-          <li>
-            If you search for something older than 15 days, you will automatically be redirected to
-            the rehydration page to rehydrate your search. If you are rehydrating, it is best to not
-            include any additional parameters in your rehydration as it will restrict the logs that
-            are rehydrated. Rehydrate for everything and then begin filtering with additional
-            parameters in datadog for what you're looking for.
+            Severity is not reliable. Script failures, IIS page failures and report problems are all
+            logged as <code>info</code> or <code>warn</code> rather than <code>error</code>, so
+            filtering by error status can hide the exact line you need.
           </li>
         </ol>
     </aside>
@@ -275,8 +292,27 @@
         @if (scopeFields.length) {
           <div class="row form-row scope-fields">
             @for (f of scopeFields; track f.id) {
-              <div class="col-md-6 mb-2">
-                <label [for]="'scope-' + f.id">{{ f.label }}</label>
+              <!--
+                Three across, and the hint moved to an info marker. Both are
+                height: at two-across with visible hints, Payment plus Advanced
+                measured 963px and scrolled even at 1440x900. Three across turns
+                two field rows into one, and the marker removes a text line from
+                each row it appears on.
+              -->
+              <div class="col-md-4 mb-2">
+                <label [for]="'scope-' + f.id">
+                  {{ f.label }}
+                  @if (f.hint) {
+                    <span
+                      class="info"
+                      tabindex="0"
+                      role="note"
+                      [attr.aria-label]="f.hint"
+                      [attr.data-tip]="f.hint"
+                      >i</span
+                    >
+                  }
+                </label>
                 <input
                   type="text"
                   class="form-control"
@@ -285,9 +321,6 @@
                   [value]="scopeFieldValues[f.id] || ''"
                   (input)="onScopeFieldInput(f.id, $any($event.target).value)"
                 />
-                @if (f.hint) {
-                  <p class="field-hint">{{ f.hint }}</p>
-                }
               </div>
             }
           </div>
@@ -327,17 +360,35 @@
 
         @if (showAdvanced) {
           <div class="advanced-fields" id="advancedFields">
-            <div class="row form-row">
-              <div class="col-md-6 mb-2">
-                <label for="inputTraceID">TRACE_ID</label>
+            <div class="row form-row form-row-tight">
+              <div class="col-md-6 mb-1">
+                <label for="inputTraceID">
+                  TRACE_ID
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Overrides everything else on the form -- every other field is ignored when this is filled in."
+                    data-tip="Overrides everything else on the form -- every other field is ignored when this is filled in."
+                    >i</span
+                  >
+                </label>
                 <input type="text" class="form-control" id="inputTraceID" />
-                <p class="field-hint">Overrides everything else on the form.</p>
               </div>
 
-              <div class="col-md-6 mb-2">
-                <label for="inputAdditionalParams">Additional Parameters</label>
+              <div class="col-md-6 mb-1">
+                <label for="inputAdditionalParams">
+                  Additional Parameters
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Extra Datadog search terms, separated by spaces. Wrap anything containing a space in quotes."
+                    data-tip="Extra Datadog search terms, separated by spaces. Wrap anything containing a space in quotes."
+                    >i</span
+                  >
+                </label>
                 <input type="text" class="form-control" id="inputAdditionalParams" />
-                <p class="field-hint">Extra Datadog terms, space separated.</p>
               </div>
             </div>
 
@@ -353,10 +404,13 @@
             <div class="row form-row form-row-tight">
               <div class="col-md-12">
                 <label class="section-label">Also include</label>
+                <p class="section-note">
+                  High-volume logs left out by default. The marker says when to use each.
+                </p>
               </div>
             </div>
 
-            <div class="row form-row include-row">
+            <div class="row form-row include-row four-up">
               <div class="col-md-4">
                 <div class="check">
                   <input

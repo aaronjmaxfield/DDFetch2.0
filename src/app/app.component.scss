@@ -46,7 +46,10 @@
   /* The side padding is what keeps the card off the screen edge on a phone,
      where it previously sat flush at x=0. The block padding stops the card
      touching top and bottom once the content is taller than the viewport. */
-  padding: 24px 16px;
+  /* Block padding trimmed from 24px. It is pure margin around the card, and in
+     the tallest state -- a scope plus Advanced -- 48px of it was the difference
+     between fitting and scrolling. 14px still keeps the card off the edges. */
+  padding: 14px 16px;
   box-sizing: border-box;
 }
 
@@ -82,7 +85,7 @@
         rgba(85, 21, 138, 0.85) 100%
       )
       border-box;
-  padding: 20px 24px 18px;
+  padding: 16px 24px 14px;
   /* Heavier, and biased down and to the right the way the original
      `5px 5px 10px #888` was -- but layered, so it reads as weight rather than
      as a hard grey edge. Deepened again now that it falls on a dark backdrop. */
@@ -150,7 +153,7 @@
   /* No right or vertical padding: the logo runs to the band edge, and overflow
      clips it to the corner radius. */
   padding: 0 0 0 18px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   overflow: hidden;
 
   h1 {
@@ -326,7 +329,9 @@ label {
   background: var(--brand-tint);
   border: 1px solid var(--brand-line);
   border-radius: 8px;
-  padding: 10px 12px 4px;
+  /* Tightened from 10px/4px. In the tightest state -- a scope plus Advanced,
+     both groups on screen -- that padding was 8px of pure slack. */
+  padding: 8px 12px 2px;
   margin-left: 0;
   margin-right: 0;
 }
@@ -415,12 +420,75 @@ label {
   margin-left: -3px;
 }
 
-/* The last column's marker sits close enough to the card edge that a
-   left-anchored tooltip runs 87px past it -- and .form-panel clips overflow, so
-   it would simply be cut off. Anchor that column's tooltip to its right edge and
-   let it grow inwards instead. Keyed off the column rather than a modifier class
-   so it keeps working if the toggles are reordered. */
-.include-row > [class*='col-']:last-child .info::after {
+/* A one-line note under a section label. Explains what a group of controls is
+   for, where a per-control marker can only explain one of them. */
+.section-note {
+  margin: 1px 0 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* Four toggles across instead of three-plus-one. Bootstrap has no col-md-2.4,
+   so the row is a flex grid here. Saves a whole row inside the Advanced group,
+   which is where the height pressure is. */
+.include-row.four-up {
+  > [class*='col-'] {
+    flex: 0 0 25%;
+    max-width: 25%;
+  }
+}
+
+/* Instructions panel: per-scope help sits above the general text, separated
+   rather than merged, because it is the part that changes. */
+.scope-help {
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--brand-line);
+
+  p {
+    margin: 4px 0 6px;
+  }
+
+  ul {
+    margin: 0 0 8px;
+    padding-left: 18px;
+  }
+
+  li {
+    margin-bottom: 3px;
+  }
+}
+
+.scope-help-label {
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 2px !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Keeping the tooltip inside the card
+   ---------------------------------------------------------------------------
+   `.form-panel` clips overflow, so a tooltip that runs past the card edge is
+   simply cut off rather than pushed back in.
+
+   The subtlety that made the first fix insufficient: the marker sits at the END
+   of the label text, not at the start of its column. So its distance from the
+   right edge depends on how long the label is, not just which column it is in.
+   In a three-across row, "Gateway's transaction ID" puts the marker roughly
+   150px into the last column, and a 208px left-anchored tooltip then overran the
+   card by well over 100px.
+
+   So: anything that is not in the first column anchors its tooltip to the right
+   and grows inwards. Deliberately `:not(:first-child)` rather than `:last-child`
+   -- a long label in a middle column overflows too, and right-anchoring a middle
+   column is harmless because there is always more room to its left than a
+   208px tooltip needs.
+   --------------------------------------------------------------------------- */
+.row > [class*='col-']:not(:first-child) .info::after {
   left: auto;
   right: -6px;
 }

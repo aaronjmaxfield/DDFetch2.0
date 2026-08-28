@@ -7,6 +7,7 @@ import {
   fieldsFor,
   findCategory,
   ScopeField,
+  ScopeGuidance,
   ScopeOption,
   SCOPES,
 } from './query/scopes.config';
@@ -277,6 +278,18 @@ export class AppComponent {
 
   /** Category dropdown options. */
   readonly scopeCategories = SCOPES;
+
+  /**
+   * Guidance for whichever scope is selected, or null. Drives the top section of
+   * the Instructions panel, so scope-specific help costs no card height.
+   */
+  get activeGuidance(): ScopeGuidance | null {
+    return findCategory(this.scopeCategory)?.guidance ?? null;
+  }
+
+  get activeScopeLabel(): string {
+    return findCategory(this.scopeCategory)?.label ?? '';
+  }
 
   scopeCategory = '';
   scopeOption = '';
