@@ -424,8 +424,25 @@ export const SCOPES: ScopeCategory[] = [
             id: 'endpoint',
             label: 'Endpoint',
             placeholder: '/apis/v4/documents',
-            hint: 'Matched against the logged MethodName, e.g. "GET /apis/v4/documents/2573836".',
-            clause: (v) => `@Properties.log.MethodName:*${v.trim()}*`,
+            hint: 'Matched against the logged MethodName, e.g. "GET /apis/v4/documents/2573836". Only narrows Construct lines -- the other tiers do not record the endpoint.',
+            /*
+             * MATCH-OR-ABSENT, and it must stay that way.
+             *
+             * `@Properties.log.MethodName` exists ONLY in the Construct family
+             * -- measured 24h: capi 30,848,809, coauth 4,815,074, cdocapi
+             * 906,259, cadmin, cuser, cdeveloper, and nothing else anywhere. A
+             * scope-field clause is AND-ed onto the WHOLE query, so the bare
+             * facet form deleted every other tier: LEECO's 2,280,288 biz lines
+             * in scope went to ZERO.
+             *
+             * Same defect as the custom-adapter clause forcing `service:aca`.
+             * The rule: a clause that is AND-ed globally must never reference
+             * something only one tier carries without an escape for the rest.
+             */
+            clause: (v) =>
+              `(@Properties.log.MethodName:*${v.trim()}* OR -@Properties.log.MethodName:*)`,
+            warn: () =>
+              'The endpoint only filters Construct API lines. Civic Platform and Citizen Access do not record it, so their lines are returned unfiltered -- use the Trace ID field to tie them to one request.',
           },
           {
             id: 'traceId',

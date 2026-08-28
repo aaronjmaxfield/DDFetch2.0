@@ -963,6 +963,81 @@ describe('QueryBuilderV2Service', () => {
             expect(warnings.some((w) => w.includes("cache misses"))).toBe(true);
         });
 
+        /*
+         * THE RULE, enforced structurally.
+         *
+         * Scope-field clauses and option `extraClause`s are AND-ed onto the
+         * WHOLE query, across every tier. So a clause that positively requires
+         * something only one tier carries deletes all the others, silently, and
+         * the result still looks like a normal result set.
+         *
+         * This has now happened twice. The custom-adapter clause began
+         * `service:aca` and deleted the biz tier on every agency -- caught only
+         * because someone looked at CLARKCO and noticed the biz logs were gone.
+         * The Construct endpoint field required `@Properties.log.MethodName`,
+         * which exists only in the Construct family, taking LEECO's 2,280,288
+         * biz lines in scope to zero.
+         *
+         * Either give the clause an escape -- `OR -<the same facet>:*` for a
+         * facet, or `OR -service:x` for a service -- or keep it to free text,
+         * which every tier can satisfy.
+         *
+         * LIMIT OF THIS GUARD, stated so nobody trusts it further than it goes:
+         * it catches STRUCTURAL tier-exclusivity only. Free text that happens to
+         * exist in just one tier passes and can still delete the others. The ADS
+         * `*FileKey=...*` clause is the case to keep in mind -- it passes here,
+         * and it is genuinely safe only because `FileKey` was measured across
+         * iis, av.biz, av.web, av.indexer, capi, cdocapi, aca and acds. That was
+         * a measurement, not an inference from the clause's shape.
+         */
+        it("has no globally-ANDed clause that can delete a whole tier", () => {
+            const ctx = {
+                agencyUpper: "AGCY",
+                agencyLower: "agcy",
+                env: { ui: "PROD", jndi: "prod" } as never,
+            };
+
+            const offenders: string[] = [];
+            const check = (label: string, clause: string) => {
+                // Does it positively require a service or a tier-specific facet?
+                const requiresService = /(^|\s|\()service:/.test(clause);
+                const requiresFacet = /(^|\s|\()@[A-Za-z_.]+:/.test(clause);
+                if (!requiresService && !requiresFacet) return;
+                // Two things count as an escape. An explicit negated arm...
+                const hasNegatedArm = /OR\s+-(@[A-Za-z_.]+|service):/.test(clause);
+                // ...or a bare free-text term, which any tier can satisfy. The
+                // lookbehind is what distinguishes `OR *VALUE*` from the
+                // `@FACET:*VALUE*` it sits next to.
+                const hasFreeTextArm = /(?<![:\w])\*[^*\s()]+\*/.test(clause);
+                if (!hasNegatedArm && !hasFreeTextArm) offenders.push(`${label}: ${clause}`);
+            };
+
+            for (const category of SCOPES) {
+                for (const option of category.options) {
+                    if (option.extraClause) {
+                        // Check the form the BUILDER emits, not the raw string --
+                        // it wraps every extraClause with an escape for the other
+                        // tiers, which is where the CLARKCO fix lives.
+                        check(
+                            `${category.id}/${option.id} extraClause`,
+                            `((${option.extraClause}) OR -service:aca)`
+                        );
+                    }
+                }
+                const allFields = [
+                    ...(category.fields ?? []).map((f) => [category.id, f] as const),
+                    ...category.options.flatMap((o) =>
+                        (o.fields ?? []).map((f) => [`${category.id}/${o.id}`, f] as const)
+                    ),
+                ];
+                for (const [scope, field] of allFields) {
+                    check(`${scope}/${field.id}`, field.clause("VALUE", ctx));
+                }
+            }
+
+            expect(offenders, `these clauses can delete a tier:\n${offenders.join("\n")}`).toEqual([]);
+        });
+
         it("has no chatterException that does not match a real pattern", () => {
             // A typo in chatterExceptions silently does nothing, which would
             // look like the fix working.
