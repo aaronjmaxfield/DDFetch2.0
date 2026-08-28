@@ -733,6 +733,82 @@ describe('QueryBuilderV2Service', () => {
             expect(query).not.toContain("filename:u_ex*");
         });
 
+        // -------------------------------------------------- Construct family
+
+        function capiQuery(overrides = {}) {
+            return v2.build(input({ applications: ["CAPI"], ...overrides })).query;
+        }
+
+        it("searches the whole Construct family, not just capi", () => {
+            // Seven services, not one. coauth is 29,425,993 lines over 7 days
+            // and 766,127 errors -- 46% of all Construct error volume, and
+            // exactly the frontline tickets: locked accounts, expired tokens,
+            // bad credentials. It was entirely unsearchable.
+            const query = capiQuery();
+            expect(query).toContain("coauth");
+            expect(query).toContain("cdocapi");
+            // Staging-only and 100% status:debug.
+            expect(query).not.toContain("gateway");
+        });
+
+        it("keeps Construct lines whose environment and agency are absent", () => {
+            // The single largest correction. CAPI logs errors from the response
+            // path with Agency, AppId and EnvName all null, so hard ANDs
+            // discarded them. Of 858,957 capi error lines over 7 days, 4,857
+            // carry EnvName (0.57%) and 33,315 carry Agency (3.88%).
+            //
+            // Errors/warns over 7d, old clause -> new: ARLINGTONCO 0/0 ->
+            // 121,551/76,527; LEECO 0/0 -> 660/155,442; FDNY 498/9 ->
+            // 24,750/6,704. Two of four reported no errors at all.
+            const query = capiQuery();
+            expect(query).toContain("-@Properties.log.EnvName:*");
+            expect(query).toContain("-@Properties.log.Agency:*");
+        });
+
+        it("front-anchors the Construct agency and keeps the AZ sibling", () => {
+            // *DC* matched seven tenants over 7 days -- DC, AZDC, OAKLANDCO,
+            // AZMERCEDCO, LADCR, LOVELANDCO, MERCEDCO. Anchoring keeps DC and
+            // AZDC and drops the rest. Lossless for the real sibling shapes,
+            // which are suffixes: {AGENCY}-TEST and {AGENCY}_MOBILE still match.
+            const query = capiQuery();
+            expect(query).toContain("@Properties.log.Agency:(AGCY* OR AZAGCY*)");
+            expect(query).not.toContain("@Properties.log.Agency:*AGCY*");
+        });
+
+        it("says out loud that unattributed Construct lines span environments", () => {
+            const { warnings } = v2.build(input({ applications: ["CAPI"] }));
+            expect(warnings.some((w) => w.includes("no agency and no environment"))).toBe(true);
+        });
+
+        it("joins the Construct trace to the biz response line, but only when a trace ID is given", () => {
+            // Both gates independently destroyed this join. Over 24h, 21,850,112
+            // biz lines carry "TraceId is"; 40 survive the Construct markers and
+            // 0 survive the response-size chatter exclusion. At 21.8M lines a
+            // day it is only affordable once a trace ID narrows the search, so
+            // both live on the field rather than the category.
+            const withTrace = v2.build(
+                input({
+                    applications: ["Civic Platform", "CAPI"],
+                    scope: {
+                        category: "construct",
+                        option: "capi",
+                        fields: { traceId: "260828163457811-2e67f1d8" },
+                    },
+                })
+            ).query;
+            expect(withTrace).toContain('"TraceId is"');
+            expect(withTrace).not.toContain('-"The response size is"');
+
+            const without = v2.build(
+                input({
+                    applications: ["Civic Platform", "CAPI"],
+                    scope: { category: "construct", option: "capi", fields: {} },
+                })
+            ).query;
+            expect(without).not.toContain('"TraceId is"');
+            expect(without).toContain('-"The response size is"');
+        });
+
         it("has no chatterException that does not match a real pattern", () => {
             // A typo in chatterExceptions silently does nothing, which would
             // look like the fix working.
@@ -740,6 +816,17 @@ describe('QueryBuilderV2Service', () => {
             for (const category of SCOPES) {
                 for (const exception of category.chatterExceptions ?? []) {
                     expect(phrases).toContain(exception);
+                }
+                // Field-level exceptions are conditional, and just as silent
+                // when misspelled.
+                const fields = [
+                    ...(category.fields ?? []),
+                    ...category.options.flatMap((o) => o.fields ?? []),
+                ];
+                for (const field of fields) {
+                    for (const exception of field.chatterExceptions ?? []) {
+                        expect(phrases).toContain(exception);
+                    }
                 }
             }
         });

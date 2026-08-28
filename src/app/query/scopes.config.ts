@@ -60,6 +60,23 @@ export interface ScopeField {
   clause: (value: string, ctx: ScopeFieldContext) => string;
   /** Returns a warning when the value looks wrong but is still usable. */
   warn?: (value: string) => string | undefined;
+  /**
+   * Extra biz-tier markers to add, but ONLY while this field has a value.
+   *
+   * Some evidence is worth millions of lines in general and indispensable once
+   * the user has narrowed to a single identifier. The Construct trace ID is the
+   * case that forced this: the biz tier records what the API returned on lines
+   * reading `... TraceId is: {id}. Response code is 200`, and there are
+   * 21,850,112 of them in 24 hours. Adding that as a plain category marker would
+   * bury every Construct search; adding it only when a trace ID is present costs
+   * nothing, because the trace-ID clause then narrows it to that one request.
+   */
+  bizMarkers?: string[];
+  /**
+   * Routine-chatter phrases to stop excluding while this field has a value.
+   * Same reasoning as `bizMarkers` above, for the other gate.
+   */
+  chatterExceptions?: string[];
 }
 
 export interface ScopeOption {
@@ -335,8 +352,31 @@ export const SCOPES: ScopeCategory[] = [
             id: 'traceId',
             label: 'Trace ID',
             placeholder: '260828163457811-2e67f1d8',
-            hint: 'The only handle on CAPI error lines, which carry no agency or environment.',
+            hint: 'The only handle on CAPI error lines, which carry no agency or environment. Also joins the trace to what the back end returned.',
+            /*
+             * Free text, not the facet. The trace ID reaches the biz tier but
+             * only as message text -- the facet form finds nothing there. So
+             * this clause is correct as it stands and must not be "improved"
+             * into `@Properties.log.TraceId:`.
+             */
             clause: (v) => `*${v.trim()}*`,
+            /*
+             * The biz tier is where a frontline user sees what the API actually
+             * returned: `The response size is 50 Bytes ... TraceId is: {id}.
+             * Response code is 200`. Two independent gates were destroying that
+             * join, and either one alone looked like the tool working.
+             *
+             * Measured over 24h: 21,850,112 biz lines carry "TraceId is". Of
+             * those, 40 survive the Construct markers, and 0 survive the
+             * response-size chatter exclusion. End to end on a real trace, the
+             * result was 4 lines cut to 3 with the biz line -- the answer --
+             * removed.
+             *
+             * Both are attached to the field rather than the category because
+             * they are only affordable once a trace ID has narrowed the search.
+             */
+            bizMarkers: ['"TraceId is"'],
+            chatterExceptions: ['"The response size is"'],
           },
         ],
       },
@@ -354,6 +394,33 @@ export function findOption(
 ): ScopeOption | undefined {
   if (!optionId) return undefined;
   return findCategory(categoryId)?.options.find((o) => o.id === optionId);
+}
+
+/**
+ * The extra markers and chatter exceptions contributed by fields that currently
+ * have a value, merged with the category's own.
+ *
+ * Field-level entries are conditional by design: they are only affordable once
+ * an identifier has narrowed the search. See `ScopeField.bizMarkers`.
+ */
+export function activeScopeExtras(
+  categoryId: string | undefined,
+  optionId: string | undefined,
+  values: Record<string, string> | undefined
+): { bizMarkers: string[]; chatterExceptions: string[] } {
+  const category = findCategory(categoryId);
+  const bizMarkers: string[] = [];
+  const chatterExceptions = [...(category?.chatterExceptions ?? [])];
+
+  if (values) {
+    for (const field of fieldsFor(categoryId, optionId)) {
+      if (!values[field.id]?.trim()) continue;
+      bizMarkers.push(...(field.bizMarkers ?? []));
+      chatterExceptions.push(...(field.chatterExceptions ?? []));
+    }
+  }
+
+  return { bizMarkers, chatterExceptions };
 }
 
 /** Every field in play for the current selection, category-level then option-level. */

@@ -146,6 +146,23 @@ const usNonProdHost = 'host:*mtsup*';
 const usCapiClusters =
   'env:(construct_prod_central_azure OR construct_staging_azure OR construct_qa_azure)';
 
+/**
+ * The Construct service family. `env:construct*` is a clean, complete and
+ * exclusive boundary -- verified: no `service:capi` outside it, and no service
+ * anywhere else with "construct" in the name.
+ *
+ * `gateway` is left out on purpose: 8,952 lines over 7 days, staging only, and
+ * entirely `status:debug`.
+ */
+export const CAPI_SERVICES = [
+  "capi",
+  "coauth",
+  "cdocapi",
+  "cadmin",
+  "cuser",
+  "cdeveloper",
+];
+
 export const HOSTS: HostDef[] = [
   {
     ui: 'US',

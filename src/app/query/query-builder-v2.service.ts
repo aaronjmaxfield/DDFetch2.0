@@ -8,8 +8,9 @@ import {
   ServiceDef,
   ServiceTarget,
   acaUrlSegment,
+  CAPI_SERVICES,
 } from './environments.config';
-import { fieldsFor, findCategory, findOption } from './scopes.config';
+import { activeScopeExtras, fieldsFor, findCategory, findOption } from './scopes.config';
 import {
   chronicExclusion,
   chronicSummary,
@@ -118,8 +119,12 @@ export class QueryBuilderV2Service implements QueryEngine {
       // The selected scope may depend on a chatter pattern as evidence -- a
       // payment investigation needs the sequence-allocation lines that
       // `lSeqRemaining` otherwise removes.
-      const scoped = findCategory(input.scope?.category);
-      const exclusion = routineChatterExclusion(scoped?.chatterExceptions);
+      const { chatterExceptions } = activeScopeExtras(
+        input.scope?.category,
+        input.scope?.option,
+        input.scope?.fields
+      );
+      const exclusion = routineChatterExclusion(chatterExceptions);
       if (exclusion) query = `${query} AND ${exclusion}`;
     }
 
@@ -370,7 +375,19 @@ export class QueryBuilderV2Service implements QueryEngine {
      */
     const category = findCategory(input.scope?.category);
     if (category?.bizMarkers?.length && input.scopeBizTier !== false) {
-      scopeParts.push(`(${category.bizMarkers.join(' OR ')})`);
+      /*
+       * Fields that currently hold a value can add markers of their own. That is
+       * how the Construct trace ID reaches the biz-tier response line: 21.8M
+       * lines a day, unaffordable as a category marker, free once a trace ID has
+       * narrowed the search to one request.
+       */
+      const extra = activeScopeExtras(
+        input.scope?.category,
+        input.scope?.option,
+        input.scope?.fields
+      ).bizMarkers;
+      const markers = [...category.bizMarkers, ...extra];
+      scopeParts.push(`(${markers.join(' OR ')})`);
       warnings.push(
         `The Civic Platform results are limited to ${category.label.toLowerCase()}-related lines. Clear the Scope dropdown to see the whole tier.`
       );
@@ -390,12 +407,63 @@ export class QueryBuilderV2Service implements QueryEngine {
   ): string {
     if (!input.applications.includes('CAPI')) return '';
 
+    const upper = agency.toUpperCase();
+
     const parts = [
-      'service:capi',
-      // Exact value, not *ENV*. The legacy wildcard also matched NONPROD1-4,
-      // AUPROD and PRODCA, so every CAPI production search was contaminated.
-      `@Properties.log.EnvName:${env.capiEnvName}`,
-      `@Properties.log.Agency:*${agency.toUpperCase()}*`,
+      /*
+       * Construct is a family of seven services, not one, and `service:capi`
+       * alone missed the most valuable member. Measured over 7 days: capi
+       * 193,111,731, coauth 29,425,993, cdocapi 5,845,988, cadmin 136,071,
+       * cuser 62,620, cdeveloper 2,287.
+       *
+       * `coauth` is Construct's auth service and carries exactly the tickets a
+       * frontline user brings -- locked-out accounts, expired tokens, bad
+       * credentials, invalid signature -- at 766,127 errors a week, 46% of all
+       * Construct error volume. It is also the best-attributed service in the
+       * family: 80% of its error lines carry the agency facet against 3.9% on
+       * capi.
+       *
+       * `gateway` is deliberately excluded: 8,952 lines, staging only, and
+       * entirely `status:debug`.
+       */
+      `service:(${CAPI_SERVICES.join(' OR ')})`,
+      /*
+       * MATCH-OR-ABSENT, and this is the single largest correction in the file.
+       *
+       * Both of these used to be hard ANDs, which silently discarded almost
+       * every Construct error. CAPI logs errors from the response path with
+       * `Agency: null, AppId: null, EnvName: null, UserName: null`, so the
+       * attributes the clause required are simply not there. Measured over 7
+       * days on `service:capi status:error`: 858,957 lines, of which 4,857
+       * carry EnvName (0.57%) and 33,315 carry Agency (3.88%).
+       *
+       * Errors and warns over 7 days, old clause against this one:
+       *
+       *   ARLINGTONCO      0 / 0      ->  121,551 / 76,527
+       *   LEECO            0 / 0      ->      660 / 155,442
+       *   FDNY           498 / 9      ->   24,750 / 6,704
+       *   MECKLENBURG     22 / 8      ->    1,332 / 9,106
+       *
+       * Two of those four reported NO Construct errors at all.
+       */
+      `(@Properties.log.EnvName:${env.capiEnvName} OR -@Properties.log.EnvName:*)`,
+      /*
+       * Front-anchored, plus the AZ sibling, plus a free-text fallback for the
+       * unattributed lines.
+       *
+       * The old `*{AGENCY}*` was both too broad and too narrow. For agency `DC`
+       * it matched seven tenants over 7 days -- DC 6,683,059, AZDC 2,847,783,
+       * OAKLANDCO 270,388, AZMERCEDCO 33,330, LADCR 2,014, LOVELANDCO 1,403,
+       * MERCEDCO 3 -- while still missing every line where the attribute is
+       * absent. Anchoring keeps DC and AZDC and drops the other five.
+       *
+       * Front-anchoring is lossless for the real sibling shapes, which are
+       * suffixes: `{AGENCY}-TEST` and `{AGENCY}_MOBILE` still match.
+       *
+       * The AZ prefix being the same tenant is a HYPOTHESIS, not measured. Drop
+       * that arm if it turns out otherwise.
+       */
+      `(@Properties.log.Agency:(${upper}* OR AZ${upper}*) OR (-@Properties.log.Agency:* AND *${upper}*))`,
     ];
 
     // Region comes from the cluster's env: tag, not from EnvName -- the AU
@@ -403,6 +471,16 @@ export class QueryBuilderV2Service implements QueryEngine {
     // AUPROD, so EnvName on its own cannot separate the regions.
     if (host.capiRegionClause) parts.push(host.capiRegionClause);
     if (host.capiRegionNote) warnings.push(host.capiRegionNote);
+
+    /*
+     * Said out loud, because the match-or-absent form has a real cost and the
+     * user cannot see it. An unattributed Construct error names no environment
+     * anywhere in the event, so keeping those lines necessarily keeps them for
+     * every environment this tenant has.
+     */
+    warnings.push(
+      'Construct error lines usually record no agency and no environment -- CAPI logs them with those fields null. To avoid hiding them the query keeps unattributed lines, which means some Construct results may come from this tenant\'s other environments. The Request half of each pair is where the URL and body are, so check those to confirm.'
+    );
 
     return `(${parts.join(' AND ')})`;
   }
