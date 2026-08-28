@@ -11,8 +11,12 @@
   --brand-line: rgba(107, 27, 174, 0.2);
   /* The original title-bar backdrop. */
   /* Greyish purple rather than the old lavender: muted enough to sit under the
-     dark backdrop without competing with the brand accents. */
-  --header-bg: #cdc6d8;
+     dark backdrop without competing with the brand accents. Lightened from
+     #cdc6d8 so the band sits closer to the card surface. */
+  --header-bg: #ddd8e8;
+  /* A brighter violet, used only where something should pop against the
+     dropped-back brand purple -- currently just the version chip. */
+  --brand-bright: #9333ea;
   --page-bg: #273841;
   /* Card surface. Off-white rather than #fff: pure white against the #273841
      backdrop is a jarring jump, and a faint lavender cast ties it to the brand.
@@ -134,9 +138,9 @@
     linear-gradient(var(--header-bg), var(--header-bg)) padding-box,
     linear-gradient(
         135deg,
-        rgba(107, 27, 174, 0.55) 0%,
-        rgba(150, 104, 200, 0.28) 45%,
-        rgba(85, 21, 138, 0.5) 100%
+        rgba(107, 27, 174, 0.34) 0%,
+        rgba(150, 104, 200, 0.14) 45%,
+        rgba(85, 21, 138, 0.3) 100%
       )
       border-box;
   /* An explicit band height, because the logo is sized from it rather than the
@@ -174,17 +178,21 @@
 
 /* The version badge does the "this is 2.0, not 1.1" work on its own, which
    means the title itself can stay calm. */
+/* Reads brighter than anything else on the card, on purpose. The brand purple
+   was dropped two shades, which left the chip looking flat; this is the one
+   place a hotter violet earns its keep. White ground keeps it legible on the
+   band, and the soft ring around it does the "flash" without animating
+   anything. */
 .version-chip {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.04em;
-  padding: 3px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
-  /* White on the lavender band, rather than the tint it used to sit on
-     against plain white. */
   background: #fff;
-  border: 1px solid var(--brand-line);
-  color: var(--brand-dark);
+  border: 1px solid rgba(147, 51, 234, 0.45);
+  color: var(--brand-bright);
+  box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.12);
   transform: translateY(1px);
 }
 
