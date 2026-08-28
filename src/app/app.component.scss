@@ -117,8 +117,28 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  background: var(--header-bg);
+  /* Soft gradient border, same two-background trick as the card: the band
+     colour clipped to the padding box, the gradient clipped to the border box,
+     showing through a transparent border.
+
+     Deliberately weaker than the card's ring -- roughly two thirds the opacity
+     and 2px rather than 3px. At the card's strength an inner element competes
+     with the outer frame instead of nesting inside it. Same 135deg angle, so
+     the two read as the same family.
+
+     overflow: hidden clips the logo to the padding box, so the border stays
+     visible all the way around it. */
+  border: 2px solid transparent;
   border-radius: 10px;
+  background:
+    linear-gradient(var(--header-bg), var(--header-bg)) padding-box,
+    linear-gradient(
+        135deg,
+        rgba(107, 27, 174, 0.55) 0%,
+        rgba(150, 104, 200, 0.28) 45%,
+        rgba(85, 21, 138, 0.5) 100%
+      )
+      border-box;
   /* An explicit band height, because the logo is sized from it rather than the
      other way round. Left to itself the 320px artwork dictated the height and
      the header became a 325px tall billboard. */
