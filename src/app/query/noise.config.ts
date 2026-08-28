@@ -86,10 +86,6 @@ export const ROUTINE_CHATTER: NoisePattern[] = [
     phrase: '"Reading Regional Data from Web Service"',
     what: 'Regional data cache loads',
   },
-  {
-    phrase: '"EDMS Config="',
-    what: 'EDMS configuration dumps on page load',
-  },
 ];
 
 /**
@@ -117,6 +113,21 @@ export const CHRONIC_PATTERNS: NoisePattern[] = [
   {
     phrase: '"It is risky to retrieve too many records"',
     what: 'Large-result-set SQL warnings',
+  },
+  {
+    /*
+     * Promoted out of ROUTINE_CHATTER on 2026-08-28. It never belonged there:
+     * measured over 7 days it carries 60,471,081 info lines AND 373
+     * `status:error` lines, so it broke the one rule that list has. A
+     * documents-scoped week on one production agency lost 74 real errors to
+     * this pattern alone, while the other ten patterns lost zero between them.
+     *
+     * Not deleted, because it is 10.4M lines a day. Moved to the tier where
+     * hiding is announced and reversible, which is what should have happened
+     * the moment it was found to contain errors.
+     */
+    phrase: '"EDMS Config="',
+    what: 'EDMS configuration dumps on page load (these include some real errors)',
   },
 ];
 
@@ -148,16 +159,32 @@ function exclusionFrom(patterns: NoisePattern[]): string {
   return patterns.map((p) => `-${p.phrase}`).join(' AND ');
 }
 
-/** The clause to AND onto a query, or '' when the list is empty. */
-export function routineChatterExclusion(): string {
-  return exclusionFrom(ROUTINE_CHATTER);
+/**
+ * The clause to AND onto a query, or '' when nothing is left to exclude.
+ *
+ * `exceptions` names phrases to keep, for a scope that depends on them as
+ * evidence -- see `chatterExceptions` on ScopeCategory. Matching is on the exact
+ * phrase string.
+ */
+export function routineChatterExclusion(exceptions: string[] = []): string {
+  const kept = exceptions.length
+    ? ROUTINE_CHATTER.filter((p) => !exceptions.includes(p.phrase))
+    : ROUTINE_CHATTER;
+  return exclusionFrom(kept);
 }
 
 export function chronicExclusion(): string {
   return exclusionFrom(CHRONIC_PATTERNS);
 }
 
-/** Plain-language summary for the warning shown when chronic patterns are hidden. */
+/**
+ * Plain-language summary for the warning shown when chronic patterns are hidden.
+ *
+ * Deliberately no case change. Lowercasing the whole string turned "EDMS" into
+ * "edms" as soon as an acronym joined the list, and lowering just the first
+ * character turns it into "eDMS", which is worse. The `what` strings are written
+ * to read correctly after a colon, so they are used verbatim.
+ */
 export function chronicSummary(): string {
-  return CHRONIC_PATTERNS.map((p) => p.what.toLowerCase()).join('; ');
+  return CHRONIC_PATTERNS.map((p) => p.what).join('; ');
 }

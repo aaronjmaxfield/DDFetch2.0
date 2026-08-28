@@ -114,7 +114,11 @@ export class QueryBuilderV2Service implements QueryEngine {
      * pattern in the list was measured to remove zero errors and zero warnings.
      */
     if (input.hideRoutineChatter !== false) {
-      const exclusion = routineChatterExclusion();
+      // The selected scope may depend on a chatter pattern as evidence -- a
+      // payment investigation needs the sequence-allocation lines that
+      // `lSeqRemaining` otherwise removes.
+      const scoped = findCategory(input.scope?.category);
+      const exclusion = routineChatterExclusion(scoped?.chatterExceptions);
       if (exclusion) query = `${query} AND ${exclusion}`;
     }
 

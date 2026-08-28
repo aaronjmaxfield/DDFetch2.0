@@ -2,6 +2,8 @@ import { TestBed } from '@angular/core/testing';
 import { QueryBuilderV2Service } from './query-builder-v2.service';
 import { LegacyQueryBuilderService } from './legacy-query-builder.service';
 import { QueryInput } from './query-input.model';
+import { SCOPES } from './scopes.config';
+import { ROUTINE_CHATTER } from './noise.config';
 
 /**
  * One test per audited defect. Each references the audit ID so it is obvious
@@ -609,5 +611,90 @@ describe('QueryBuilderV2Service', () => {
             (host) => v2.build(input({ host, environment: 'PROD' })).query
         );
         expect(new Set(queries).size).toBe(4);
+    });
+    // ------------------------------------------- signal-loss regression suite
+    //
+    // Each case below corresponds to a fingerprint that a real closed
+    // investigation turned on, and that the engine was measured to be dropping
+    // on 2026-08-28. They exist so that a future noise or scoping change cannot
+    // quietly remove the evidence again. The measured loss is named in each
+    // test; if you change a marker list, these are the tests that should fail
+    // first.
+
+    describe("recovered fingerprints", () => {
+        function paymentQuery() {
+            return v2.build(input({ scope: { category: "payment", option: "forte" } })).query;
+        }
+
+        it("can see the production webhook error, which carries no payment token", () => {
+            // "AccelaAdapter webhook not recieved for transactionId :{guid}" is
+            // the most common "I paid and got no receipt" error in production.
+            // Measured over 7 days, the pre-fix marker set returned 0 of
+            // HOLLYWOOD 53, LEECO 262 and SANTAANA 5.
+            expect(paymentQuery()).toContain("*AccelaAdapter*");
+        });
+
+        it("can see CONV_FEE, which convFee provably cannot match", () => {
+            // Measured intersection of *convFee* and *CONV_FEE* is exactly 0:
+            // underscore is not a Datadog token separator. 2,662 lines existed
+            // estate-wide in 24h and 8 were visible. Not a casing issue --
+            // *CONVFEE* matches the convFee set, *conv_fee* the CONV_FEE set.
+            const query = paymentQuery();
+            expect(query).toContain("*CONV_FEE*");
+            expect(query).toContain("*convFee*");
+        });
+
+        it("can see the postback-data fingerprint", () => {
+            // The absence of "log postback data begin" is the fingerprint of
+            // the platform-wide ACA postback 400/302 case. 2,890 lines existed
+            // in 24h estate-wide; 97 were visible to the old markers.
+            expect(paymentQuery()).toContain("*log postback data begin*");
+        });
+
+        it("keeps the sequence-allocation lines when investigating a payment", () => {
+            // lSeqRemaining passes the routine-chatter admission test -- zero
+            // errors, zero warns -- and still destroys evidence, because the
+            // sequence lines are INFO. Excluding it takes *ETRANSACTION_SEQ2*
+            // from 21,095 to 2. It is the proof-of-initiation fingerprint in
+            // five closed cases.
+            expect(paymentQuery()).not.toContain("-\"lSeqRemaining\"");
+        });
+
+        it("also carries the marker the sequence lines need", () => {
+            // Dropping the chatter pattern was NOT sufficient: those lines are
+            // gated twice, and no original marker contains "etransaction".
+            // Measured on LEECO PROD over 24h, *ETRANSACTION_SEQ2* went 0 -> 38
+            // only once this marker was added, at a cost of 89 lines and zero
+            // new errors.
+            expect(paymentQuery()).toContain("*ETRANSACTION*");
+        });
+
+        it("still excludes lSeqRemaining when no payment scope is selected", () => {
+            // It is 1.9M lines a day, so the exception is scoped, not global.
+            expect(v2.build(input({})).query).toContain("-\"lSeqRemaining\"");
+        });
+
+        it("no longer hides EDMS Config silently, because it contains real errors", () => {
+            // 60,471,081 info lines over 7 days AND 373 status:error. It broke
+            // the routine tier rule, so it moved to the announced tier.
+            const { query, warnings } = v2.build(input({}));
+            expect(query).toContain("-\"EDMS Config=\"");
+            expect(warnings.some((w) => w.includes("EDMS configuration dumps"))).toBe(true);
+        });
+
+        it("includes EDMS Config when chronic patterns are turned on", () => {
+            expect(v2.build(input({ showChronic: true })).query).not.toContain("EDMS Config=");
+        });
+
+        it("has no chatterException that does not match a real pattern", () => {
+            // A typo in chatterExceptions silently does nothing, which would
+            // look like the fix working.
+            const phrases = ROUTINE_CHATTER.map((p) => p.phrase);
+            for (const category of SCOPES) {
+                for (const exception of category.chatterExceptions ?? []) {
+                    expect(phrases).toContain(exception);
+                }
+            }
+        });
     });
 });

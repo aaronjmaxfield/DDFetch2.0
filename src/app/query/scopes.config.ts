@@ -106,6 +106,19 @@ export interface ScopeCategory {
    * Every marker below was measured against that agency rather than guessed.
    */
   bizMarkers?: string[];
+  /**
+   * Routine-chatter phrases NOT to exclude when this category is selected.
+   *
+   * Some chatter is genuinely noise in general and primary evidence in one
+   * specific investigation. Rather than choose globally -- suppress it always
+   * and lose the evidence, or drop it always and re-admit millions of lines --
+   * the category that needs it says so.
+   *
+   * Entries must match the `phrase` in `ROUTINE_CHATTER` exactly, quotes
+   * included. A typo silently does nothing, so there is a test asserting every
+   * exception here corresponds to a real pattern.
+   */
+  chatterExceptions?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +174,45 @@ export const SCOPES: ScopeCategory[] = [
     fields: [capId, transactionId, providerTxId],
     // Measured 24h volumes on the busiest Forte agency: transaction-id 61,081,
     // forte 7,893, payment 4,525, invoice 1,193, receipt 463, F4PAYMENT 34.
+    //
+    // ------------------------------------------------------------------------
+    // THE SECOND FIVE WERE ADDED AFTER A SIGNAL-LOSS AUDIT (2026-08-28)
+    // ------------------------------------------------------------------------
+    // The original seven were measured on ONE agency, in ONE environment, on
+    // biz-tier lines. They do not hold on the ACA tier, and the gap hid the
+    // single most common "I paid and got no receipt" error in production.
+    //
+    // `AccelaAdapter webhook not recieved for transactionId :{guid}` carries NO
+    // agency, NO logger and NO payment token in production, so none of the
+    // original markers can see it. Measured over 7 days:
+    //
+    //   HOLLYWOOD   53 errors -> 0 survived the original markers
+    //   LEECO      262 errors -> 0 survived
+    //   SANTAANA     5 errors -> 0 survived
+    //
+    // All three recover fully with `*AccelaAdapter*`. The one case that DID
+    // survive during testing only did so because that environment's ACA log
+    // happened to keep the log4net prefix `Accela.ACA.Web.Payment...`, so
+    // `*payment*` matched the LOGGER NAME rather than the message. 0 of 315
+    // sampled production lines carry that prefix. Do not rely on it.
+    //
+    // Recovery measured estate-wide over 24h, "exists" vs "visible to the
+    // original seven":
+    //
+    //   *log postback data begin*   2,890 exist,     97 visible   (96.6% hidden)
+    //   *CONV_FEE*                  2,662 exist,      8 visible   (99.7% hidden)
+    //   *proTransID*                5,176 exist,  4,211 visible
+    //   *gatewayTransactionId*     26,291 exist, 26,204 visible
+    //
+    // `*CONV_FEE*` is NOT redundant with `*convFee*`. They are provably
+    // disjoint -- measured intersection exactly 0 -- because underscore is not
+    // a Datadog token separator, so `convFee` never matches `CONV_FEE`. This is
+    // not a casing issue: `*CONVFEE*` matches the same set as `*convFee*`, and
+    // `*conv_fee*` the same set as `*CONV_FEE*`. Free text stays
+    // case-insensitive; it is the underscore that splits them.
+    //
+    // Cost: zero on the biz tier. On the ACA tier, LEECO over 24h goes 8,621 ->
+    // 10,793 (+25.2%), which buys back 45 webhook errors that were invisible.
     bizMarkers: [
       '*transaction-id*',
       '*payment*',
@@ -169,7 +221,33 @@ export const SCOPES: ScopeCategory[] = [
       '*forte*',
       '*F4PAYMENT*',
       '*convFee*',
+      '*CONV_FEE*',
+      '*AccelaAdapter*',
+      '*proTransID*',
+      '*gatewayTransactionId*',
+      '*log postback data begin*',
+      // The sequence-allocation lines are gated TWICE -- by the
+      // `lSeqRemaining` chatter pattern and by these markers. Dropping the
+      // chatter exception alone recovered nothing, because no marker contains
+      // "etransaction": `*transaction-id*` is not a substring of
+      // `etransaction_seq2`. Measured on LEECO PROD over 24h, this marker costs
+      // 89 lines, adds zero errors, and takes `*ETRANSACTION_SEQ2*` from 0 to
+      // 38. `*F4PAYMENT_SEQ*` needed nothing: `*F4PAYMENT*` already substring-
+      // matches it inside the token.
+      '*ETRANSACTION*',
     ],
+    /*
+     * `lSeqRemaining` passes the routine-chatter admission test -- it contains
+     * zero errors and zero warns -- and still destroys primary evidence, because
+     * the sequence-allocation lines are INFO. Excluding it takes
+     * `*ETRANSACTION_SEQ2*` from 21,095 to 2 and `*F4PAYMENT_SEQ*` from 22,331
+     * to 2. Those lines are the proof-of-initiation fingerprint in five closed
+     * investigations, and in one of them the only evidence the payment started.
+     *
+     * It stays excluded generally, because it is 1.9M lines a day, but not when
+     * the user has said they are investigating a payment.
+     */
+    chatterExceptions: ['"lSeqRemaining"'],
     options: [
       {
         id: 'forte',
