@@ -3,15 +3,15 @@
    One purple, used at a few fixed opacities, so accents stay consistent.
    --------------------------------------------------------------------------- */
 :host {
-  --brand: #8825da;
-  --brand-dark: #6f1cb4;
-  --brand-tint: #f7f2fd;
-  --brand-line: rgba(136, 37, 218, 0.18);
-  /* The original card outline. Kept at the old 3px / 50% opacity because that
-     ring is a lot of what made the tool recognisable. */
-  --brand-outline: rgba(136, 37, 218, 0.5);
+  /* Dropped a couple of shades from the original #8825da. Everything purple in
+     the UI derives from these two, so the whole palette moves together. */
+  --brand: #6b1bae;
+  --brand-dark: #55158a;
+  --brand-tint: #f4eefb;
+  --brand-line: rgba(107, 27, 174, 0.2);
   /* The original title-bar backdrop. */
   --header-bg: lavender;
+  --page-bg: #273841;
   --ink: #1f2330;
   --ink-soft: #5b6072;
   --line: #e6e4ec;
@@ -25,6 +25,7 @@
    --------------------------------------------------------------------------- */
 .page {
   min-height: 100vh;
+  background: var(--page-bg);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -40,9 +41,11 @@
 
 .panel {
   /* Grows into the space but stops before the form gets uncomfortably wide.
-     Previously fixed at col-md-6, so it was a narrow strip on a 1920 screen. */
+     Previously fixed at col-md-6, so it was a narrow strip on a 1920 screen.
+     Tightened from 820px; the floor is set by the timestamp fields, which must
+     show the full `08/28/2026 12:00 AM` plus the picker icon without clipping. */
   flex: 1 1 380px;
-  max-width: 820px;
+  max-width: 780px;
   box-sizing: border-box;
   /* Required. A flex item defaults to min-width:auto, so it refuses to shrink
      below its content's intrinsic minimum -- and `datetime-local` inputs have a
@@ -53,17 +56,28 @@
 
 .form-panel {
   position: relative;
-  background: #fff;
-  /* The original 3px purple ring, restored. */
-  border: 3px solid var(--brand-outline);
+  /* Soft gradient ring. A border cannot itself take a gradient, so the panel
+     paints two backgrounds: flat white clipped to the padding box, and the
+     gradient clipped to the border box, which leaves the gradient showing
+     through the 3px transparent border. */
+  border: 3px solid transparent;
   border-radius: var(--radius);
-  padding: 26px 30px 22px;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(
+        135deg,
+        rgba(107, 27, 174, 0.9) 0%,
+        rgba(150, 104, 200, 0.5) 45%,
+        rgba(85, 21, 138, 0.85) 100%
+      )
+      border-box;
+  padding: 22px 26px 20px;
   /* Heavier, and biased down and to the right the way the original
      `5px 5px 10px #888` was -- but layered, so it reads as weight rather than
-     as a hard grey edge. */
+     as a hard grey edge. Deepened again now that it falls on a dark backdrop. */
   box-shadow:
-    0 3px 6px rgba(24, 20, 38, 0.1),
-    6px 10px 24px rgba(24, 20, 38, 0.22);
+    0 3px 8px rgba(0, 0, 0, 0.22),
+    8px 14px 34px rgba(0, 0, 0, 0.34);
   overflow: hidden;
 }
 
@@ -98,8 +112,15 @@
   gap: 16px;
   background: var(--header-bg);
   border-radius: 10px;
-  padding: 14px 18px;
-  margin-bottom: 24px;
+  /* An explicit band height, because the logo is sized from it rather than the
+     other way round. Left to itself the 320px artwork dictated the height and
+     the header became a 325px tall billboard. */
+  height: 86px;
+  /* No right or vertical padding: the logo runs to the band edge, and overflow
+     clips it to the corner radius. */
+  padding: 0 0 0 18px;
+  margin-bottom: 18px;
+  overflow: hidden;
 
   h1 {
     display: flex;
@@ -114,6 +135,7 @@
 }
 
 .app-header-text {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -139,29 +161,39 @@
   transform: translateY(1px);
 }
 
+/* Fills the band. The artwork is square with its own purple ground, so letting
+   it run the full height and flush to the right edge makes it read as part of
+   the header rather than as a sticker dropped on top of it. */
 .logo {
-  max-height: 64px;
   margin-left: auto;
-  border-radius: 10px;
+  /* Full band height, square because the artwork is. */
+  height: 100%;
+  width: auto;
+  max-height: none;
   flex-shrink: 0;
+  display: block;
 }
 
 /* ---------------------------------------------------------------------------
    Form rhythm
    --------------------------------------------------------------------------- */
+/* Tightened. Rows whose columns carry Bootstrap's mb-3 already have 16px of
+   their own, so this only needs to top it up. */
 .form-row {
-  margin-bottom: 18px;
-}
-
-.form-row-tight {
   margin-bottom: 8px;
 }
 
+.form-row-tight {
+  margin-bottom: 4px;
+}
+
 /* Bootstrap's row gutters pull content outside the panel padding. Neutralised
-   so the panel padding is the only thing setting the left and right edge. */
+   so the panel padding is the only thing setting the left and right edge, and
+   narrowed from the 24px default to buy width back for the timestamp fields. */
 .form-row {
   margin-left: 0;
   margin-right: 0;
+  --bs-gutter-x: 1rem;
 }
 
 label {
@@ -196,10 +228,38 @@ label {
   /* Same reason as .panel -- lets the date inputs shrink on narrow screens
      instead of forcing the card wider than the viewport. */
   min-width: 0;
+  /* Tints the native furniture the browser draws for us: the datetime spinner,
+     the selected segment highlight, and the dropdown list highlight. */
+  accent-color: var(--brand);
 
   &:focus {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(136, 37, 218, 0.14);
+    box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.16);
+  }
+}
+
+/* Native select arrows are grey and cannot be recoloured, so the arrow is
+   replaced with an inline SVG caret in the brand purple. */
+select.form-control {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b1bae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 15px 15px;
+  padding-right: 34px;
+}
+
+/* Same for the calendar button inside the timestamp fields. Overriding the
+   indicator's background-image replaces the glyph while leaving the browser's
+   click target and picker behaviour intact. */
+input[type='datetime-local'] {
+  &::-webkit-calendar-picker-indicator {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b1bae' stroke-width='1.6' stroke-linecap='round'%3E%3Crect x='2' y='3.2' width='12' height='11' rx='1.6'/%3E%3Cpath d='M2 6.6h12M5.4 1.8v2.2M10.6 1.8v2.2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 15px 15px;
+    background-position: center;
+    cursor: pointer;
+    opacity: 1;
   }
 }
 
@@ -309,8 +369,8 @@ label {
 
   /* Generated-query preview */
   .query-preview {
-    border: 1px solid rgba(136, 37, 218, 0.4);
-    border-left: 4px solid rgba(136, 37, 218, 1);
+    border: 1px solid rgba(107, 27, 174, 0.4);
+    border-left: 4px solid var(--brand);
     border-radius: 6px;
     padding: 10px 12px;
     margin-bottom: 10px;
@@ -396,16 +456,17 @@ label {
 
   .app-header {
     gap: 12px;
-    padding: 12px 14px;
-    margin-bottom: 18px;
+    height: 66px;
+    padding: 0 0 0 14px;
+    margin-bottom: 14px;
 
     h1 {
-      font-size: 24px;
+      font-size: 22px;
     }
   }
 
-  .logo {
-    max-height: 48px;
+  .app-tagline {
+    font-size: 12px;
   }
 
   /* Stacked, so the primary action spans the width rather than floating. */

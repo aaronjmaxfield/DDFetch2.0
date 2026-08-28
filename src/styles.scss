@@ -9,4 +9,11 @@
 @import "../node_modules/bootstrap/scss/bootstrap.scss";
 
 html, body { height: 100%; }
-body { margin: 0; font-family: Roboto, "Helvetica Neue", sans-serif; }
+
+// The page backdrop. Set globally as well as on .page so that scrolling past
+// the 100vh shell, or overscrolling, never reveals a white strip.
+body {
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  background: #273841;
+}
