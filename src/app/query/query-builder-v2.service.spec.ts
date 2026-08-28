@@ -882,7 +882,25 @@ describe('QueryBuilderV2Service', () => {
             expect(query).not.toContain("@PROVIDER:");
         });
 
-        it("does not layer the crude payment markers over a precise option clause", () => {
+        it("keeps the biz tier when an option scopes the ACA tier", () => {
+            // The first version AND-ed the adapter clause raw, which forced
+            // service:aca onto the whole query and deleted the biz tier -- a
+            // CLARKCO search returned ACA lines only, while the payment is
+            // applied in biz. CLARKCO's biz tier carries 2,702 *payment* lines
+            // in 24h and ZERO naming CyberSource, its actual adapter, so it can
+            // only be scoped by the category markers.
+            const { query } = v2.build(
+                input({
+                    applications: ["Civic Platform", "Citizen Access"],
+                    scope: { category: "payment", option: "custom-adapter" },
+                })
+            );
+            expect(query).toContain("OR -service:aca");
+            // Biz identity survives.
+            expect(query).toContain("@JNDI:");
+        });
+
+        it("exempts ACA from the markers without unscoping the biz tier", () => {
             // Measured on MILARA over 24h: the custom-adapter clause alone
             // returns 20,144 lines and 720 errors. Adding the payment markers on
             // top took it to 10,988 lines and 8 errors -- 712 real errors gone,
@@ -891,24 +909,35 @@ describe('QueryBuilderV2Service', () => {
             const precise = v2.build(
                 input({ scope: { category: "payment", option: "custom-adapter" } })
             ).query;
-            expect(precise).not.toContain("*transaction-id*");
+            // Markers still present -- the biz tier needs them -- but ACA lines
+            // are let through without them.
+            expect(precise).toContain("*transaction-id*");
+            expect(precise).toContain("OR service:aca)");
 
-            // A normal provider option still gets them.
+            // A normal provider option gets the markers with no ACA exemption.
             const normal = v2.build(
                 input({ scope: { category: "payment", option: "forte" } })
             ).query;
             expect(normal).toContain("*transaction-id*");
+            expect(normal).not.toContain("OR service:aca)");
         });
 
-        it("gives CoBrandPlus its own option, including the biz-tier line", () => {
-            // The only custom adapter with its own code classes, the only one
-            // named in a biz-tier line, and it logs informational lines at ERROR
-            // severity -- a triage hazard for 17 agencies.
+        it("gives CoBrandPlus its own option, scoped on its ACA loggers", () => {
+            // The only custom adapter with its own code classes, and it logs
+            // informational lines at ERROR severity -- a triage hazard for 17
+            // agencies.
+            //
+            // Deliberately does NOT name its biz-tier line
+            // (`Provider transaction details for OPCOBrandPlus`). Naming it
+            // would have made that the ONLY biz line accepted, excluding the
+            // generic F4PAYMENT and receipt lines that say whether the payment
+            // was actually applied. The category markers reach all of them.
             const { query } = v2.build(
                 input({ scope: { category: "payment", option: "cobrandplus" } })
             );
             expect(query).toContain("CoBrandPlusPayment");
-            expect(query).toContain("Provider transaction details for");
+            expect(query).not.toContain("Provider transaction details for");
+            expect(query).toContain("OR -service:aca");
         });
 
         it("filters the adapter config dumps by facet, not by phrase", () => {

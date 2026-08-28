@@ -110,9 +110,24 @@ export class QueryBuilderV2Service implements QueryEngine {
     /*
      * A custom adapter has no service and no @PROVIDER value to filter on, so
      * the option supplies its own clause. See ScopeOption.extraClause.
+     *
+     * `OR -service:aca` is load-bearing and was missing in the first version.
+     * The clause identifies the adapter by an ACA logger facet, so AND-ing it
+     * raw forced `service:aca` onto the ENTIRE query and silently deleted the
+     * biz tier -- a CLARKCO search returned ACA lines only. The payment is
+     * applied in the biz tier, so that is half the story gone.
+     *
+     * Scoped this way it means "if this is an ACA line it must be one of these
+     * loggers; otherwise let the branch's own scoping decide". Measured on
+     * CLARKCO over 24h, the biz tier carries 2,702 `*payment*` lines, 1,509
+     * `*transaction-id*`, 1,247 `*receipt*` and 22 `*F4PAYMENT*` -- and ZERO
+     * lines naming CyberSource, its actual adapter. The biz tier records payment
+     * activity with no adapter identity whatsoever, which is exactly why it
+     * cannot be filtered by an adapter clause and must be scoped by the
+     * category's markers instead.
      */
     if (scopeOption?.extraClause) {
-      query = `${query} AND ${scopeOption.extraClause}`;
+      query = `${query} AND ((${scopeOption.extraClause}) OR -service:aca)`;
     }
 
     const params = this.formatAdditionalParams(input.additionalParams);
@@ -423,21 +438,25 @@ export class QueryBuilderV2Service implements QueryEngine {
     if (category && !input.includeIndexer) scopeParts.push('-service:av.indexer');
 
     /*
-     * An option carrying its own `extraClause` has already scoped the search
-     * precisely, by facet, so the category's heuristic free-text markers can
-     * only subtract from it.
+     * An option carrying its own `extraClause` scopes the ACA tier precisely, by
+     * facet, so the category's crude free-text markers can only subtract there.
      *
-     * This is not theoretical. Measured on MILARA over 24h, the custom-adapter
-     * clause returns 20,144 lines and 720 errors; adding the payment markers on
-     * top took it to 10,988 lines and **8 errors**. The markers removed 712 real
-     * errors because ACA error messages frequently carry no payment word at all
-     * -- the same failure that hid `AccelaAdapter webhook not recieved` in
-     * production. A precise clause supersedes a crude one.
+     * Measured on MILARA over 24h: the custom-adapter clause returns 20,144
+     * lines and 720 errors, and layering the payment markers on top took it to
+     * 10,988 lines and **8 errors**. The markers removed 712 real errors because
+     * ACA error messages frequently carry no payment word -- the same failure
+     * that hid `AccelaAdapter webhook not recieved` in production.
+     *
+     * But the markers must still apply to the BIZ tier, which has no adapter
+     * identity to filter on (CLARKCO logs zero CyberSource lines while running
+     * CyberSource). So the markers are exempted for ACA lines only, rather than
+     * dropped altogether -- dropping them entirely would leave the biz tier
+     * completely unscoped and return millions of unrelated lines.
      */
     const preciseOption = findOption(input.scope?.category, input.scope?.option);
-    const optionScopesItself = !!preciseOption?.extraClause;
+    const acaScopedByOption = !!preciseOption?.extraClause;
 
-    if (category?.bizMarkers?.length && input.scopeBizTier !== false && !optionScopesItself) {
+    if (category?.bizMarkers?.length && input.scopeBizTier !== false) {
       /*
        * Fields that currently hold a value can add markers of their own. That is
        * how the Construct trace ID reaches the biz-tier response line: 21.8M
@@ -450,7 +469,10 @@ export class QueryBuilderV2Service implements QueryEngine {
         input.scope?.fields
       ).bizMarkers;
       const markers = [...category.bizMarkers, ...extra];
-      scopeParts.push(`(${markers.join(' OR ')})`);
+      const markerClause = `(${markers.join(' OR ')})`;
+      scopeParts.push(
+        acaScopedByOption ? `(${markerClause} OR service:aca)` : markerClause
+      );
       warnings.push(
         `The Civic Platform results are limited to ${category.label.toLowerCase()}-related lines. Clear the Scope dropdown to see the whole tier.`
       );

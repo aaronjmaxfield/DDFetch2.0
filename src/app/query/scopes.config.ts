@@ -354,8 +354,15 @@ export const SCOPES: ScopeCategory[] = [
          */
         id: 'cobrandplus',
         label: 'CoBrandPlus / Official Payments',
+        /*
+         * ACA loggers only. The builder exempts non-ACA lines automatically, so
+         * the biz tier comes through under the category's payment markers --
+         * which is what reaches `Provider transaction details for OPCOBrandPlus`
+         * along with the generic F4PAYMENT and receipt lines. Naming the biz
+         * line explicitly here would have EXCLUDED those generic lines.
+         */
         extraClause:
-          '(service:aca @logger.name:(Accela.ACA.Web.Payment.CoBrandPlusPayment OR Accela.ACA.Web.Payment.CoBrandPlusHandler OR Payment_PaymentRedirect OR Payment_PaymentPostback) OR (service:av.biz AND *Provider transaction details for*))',
+          'service:aca @logger.name:(Accela.ACA.Web.Payment.CoBrandPlusPayment OR Accela.ACA.Web.Payment.CoBrandPlusHandler OR Payment_PaymentRedirect OR Payment_PaymentPostback)',
       },
     ],
   },
