@@ -77,6 +77,8 @@ export interface ScopeField {
    * Same reasoning as `bizMarkers` above, for the other gate.
    */
   chatterExceptions?: string[];
+  /** Chronic phrases to stop excluding while this field has a value. */
+  chronicExceptions?: string[];
 }
 
 export interface ScopeOption {
@@ -151,6 +153,28 @@ export interface ScopeCategory {
    * exception here corresponds to a real pattern.
    */
   chatterExceptions?: string[];
+  /**
+   * Chronic phrases NOT to exclude when this category is selected.
+   *
+   * For a category whose entire subject IS the chronic pattern. Reporting is the
+   * case: `"report takes more than"` is the pattern that created the chronic
+   * tier, and hiding it from a reporting search hides the answer. Measured with
+   * the reporting markers in place, the tool returned 1 warning for LEECO, 1 for
+   * FDNY and zero for three other agencies.
+   */
+  chronicExceptions?: string[];
+  /**
+   * Force the `emse.log` identity arm on for this category.
+   *
+   * Measured on four agencies across two environments and all three original
+   * scopes: the arm adds +1.0% to +40.0% lines and EXACTLY ZERO errors, every
+   * time. The zero is structural rather than lucky -- `filename:emse.log` is
+   * 20,558,384 lines and 100% `status:info`, even though 1,992,107 of them
+   * contain the token `ERROR` and 1,905,251 carry a full `aa_exception` block
+   * with the failing SQL. So it is nearly free, and it is where EMSE and
+   * batch-script failures actually live.
+   */
+  forceEmse?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -478,6 +502,336 @@ export const SCOPES: ScopeCategory[] = [
       },
     ],
   },
+  {
+    id: 'gis',
+    label: 'GIS / Parcels',
+    /*
+     * The "60% is one tenant" reading that nearly killed this category was an
+     * artefact of the word "parcel". LANE_CO holds 812,555 of the estate's
+     * 820,978 `*ParcelScript*` errors -- one broken Oregon EMSE script -- but 2
+     * of 792,240 `*GIS*` errors, 0 of 259,564 `*ParcelService*` and 0 of 48,048
+     * `*post2AAGIS*`. Real category, dozens of production tenants, four regions.
+     *
+     * Scoped against unscoped, 24h: MECKLENBURG US PROD 4,307,889 -> 61,883
+     * (1.44% kept), COSA 4,839,512 -> 236,687, BARRIE CA PROD 301,880 -> 5,702.
+     * 100% retention on all 19 named error families.
+     *
+     * `*APO*` is REJECTED. It adds 196,579 errors of which 169,097 are
+     * `IJ000453 ... FROM RSERV_PROV`, a generic agency-registry query caught
+     * through one incidental column name -- it would make the category's error
+     * count six times larger and 96% wrong.
+     *
+     * `*parcel*` needs no table companions: `*B3PARCEL*`, `*B1_PARCEL_NBR*` and
+     * `*L1_PARCEL_NBR*` each add exactly 0, because "parcel" is a CONTIGUOUS
+     * substring of `b1_parcel_nbr`. The opposite of the convFee / CONV_FEE case,
+     * which fails only because the substring would have to span the underscore.
+     *
+     * `*GIS*` also matches "regis" (register, registry) -- 18.5% of its volume.
+     * Accepted deliberately: the residue is 29-756 lines per agency, and the
+     * precise alternative under-matches by 57,619 errors. The exact-token form
+     * does not even match `GISGeometryBusiness`.
+     */
+    bizMarkers: [
+      '*parcel*',
+      '*GIS*',
+      '*MapService*',
+      '"GovXML Response="',
+      '"External APO Restful API"',
+    ],
+    fields: [
+      {
+        id: 'parcelNumber',
+        label: 'Parcel number',
+        placeholder: '159-211-12, 04704452, 016A00250026',
+        hint: 'Formats are agency-specific. Paste it exactly as the agency writes it.',
+        clause: (v) => `*${v.trim()}*`,
+        /*
+         * Load-bearing, not a refinement. A parcel reaches parcel work through
+         * `Request path is: /v4/records/{id}/parcels`, and `"Request path is:"`
+         * is in ROUTINE_CHATTER. Measured GIS-scoped on MECKLENBURG: parcel
+         * 04704452 has 6 lines, 0 survive the scope, 4 survive with this.
+         */
+        chatterExceptions: ['"Request path is:"'],
+      },
+      {
+        id: 'capIdForParcels',
+        label: 'CAP ID',
+        placeholder: '26ABC-00000-01304',
+        hint: 'Finds the parcels attached to a record.',
+        clause: (v) => `*${v.trim()}*`,
+        // Same reason: CAP REC26-00000-03D2V has 29 lines, 0 scoped, 1 with this.
+        chatterExceptions: ['"Request path is:"'],
+      },
+      {
+        id: 'mapService',
+        label: 'Map service',
+        placeholder: 'COHB',
+        hint: 'The agency GIS map service name, from the GIS configuration.',
+        // A colon inside a wildcard is parsed as a facet: `*Map Service: COHB*`
+        // returns 0, the quoted form returns 285.
+        clause: (v) => `("Map Service: ${v.trim()}" OR *MapService*${v.trim()}*)`,
+      },
+    ],
+    options: [],
+  },
+  {
+    id: 'emse',
+    label: 'EMSE scripts',
+    /*
+     * Real category, not one broken tenant: `*aa.emse* status:error` reaches 388
+     * distinct agencies in 24h. LANE_CO's 58% share is a single defect,
+     * `ParcelScript/deleteParceDistrictForDaily`; strip it and 387 agencies share
+     * 383,796 errors, 150 of them with 100 or more.
+     *
+     * Reductions with the emse arm forced on, 24h: LEECO 90.2%, CFW 94.6%,
+     * CLARKCO 86.9%, MANATEE 99.5%, BARRIE 95.6%. Every EMSE error family
+     * retained at 100%, `- THROW` included.
+     *
+     * `- THROW` is NOT a marker. It is a platform-wide convention: outside EMSE
+     * it is 729,425 lines and 724,702 errors of I18NHelper, TextMessageResources
+     * and web-service throws. As a category marker it injected 183,605 unrelated
+     * errors against CFW's 2,726 real ones. It lives on the trace-ID field.
+     *
+     * `*ScriptEngine*` measured 25 lines estate-wide and is not here.
+     *
+     * Two markers are quoted because the wildcard form matches both tokens
+     * ANYWHERE on the line: `*Script Error*` is 2,270,869 lines against 10,639
+     * quoted, and on LANE_CO the wildcard form returns 682,551 lines with zero
+     * errors. This is the inverse of the usual positive-matching rule.
+     */
+    bizMarkers: [
+      '*emse*',
+      '*ScriptDAOOracle*',
+      '"Run Expression"',
+      '"Script Error"',
+      '"Action Cancelled"',
+    ],
+    forceEmse: true,
+    fields: [
+      {
+        id: 'scriptOrEvent',
+        label: 'Script or event name',
+        placeholder: 'ISB:PERMITTING, or the script name',
+        hint: 'Use the script name. The short event codes are not searchable terms -- ASA alone matches 1,067,976 unrelated lines.',
+        // A colon inside a wildcard is parsed as a facet and returns HTTP 400,
+        // so a value containing one switches to the quoted form.
+        clause: (v) => {
+          const t = v.trim();
+          return t.includes(':') ? `"${t}"` : `*${t}*`;
+        },
+        warn: (v) =>
+          /^(ASA|ASB|PRA|ACUA|WTUA)$/i.test(v.trim())
+            ? `"${v.trim()}" is an event abbreviation rather than a searchable token, and it matches unrelated text. Search the script name instead, or use the trace ID.`
+            : undefined,
+      },
+      capId,
+      {
+        id: 'emseTraceId',
+        label: 'Trace ID',
+        placeholder: 'W-20260101120000000-1a2b3c4d',
+        hint: 'From the script error line. This is the only way to see the caller that triggered the script.',
+        clause: (v) => `*${v.trim()}*`,
+        /*
+         * On a real trace the category markers cut 9 lines to 4, and the first
+         * casualty is the caller -- `InspectionWebService/batchScheduleInspections
+         * - THROW` -- which is the answer. These restore all 9. As category
+         * markers they would have cost +290% and +332%.
+         */
+        bizMarkers: ['"THROW"', '*TraceId*'],
+      },
+    ],
+    options: [],
+  },
+  {
+    id: 'records',
+    label: 'Records',
+    /*
+     * The chronic problem here is THREE separate defects, not one, and two of
+     * the names in circulation were wrong. `INNHelper.doINNNRecordModel()` is
+     * really `I18NHelper/doI18N4RecordModel()`, and it is a different family from
+     * `getCapTypeByPK(:null/null/null/null)`, which is different again from
+     * `capModel and serviceProviderCode of capId should not be null`. Measured
+     * 24h estate-wide: 1,162,884 / 164,754 / 83,418 lines, all ~100% error --
+     * 1.41M a day between them, and 78.2% of every biz-tier error at LEECO.
+     *
+     * Each needed a different treatment. Family A is in CHRONIC_PATTERNS (300
+     * sampled events, one distinct message string, no stack and no identifier,
+     * so it cannot contain an answer). Family B is designed OUT of the markers
+     * instead -- `*getCapTypeByPK*` and `*CapTypeService*` sit on the recordType
+     * field below, which drops the family from 164,754 lines to 20 while
+     * returning real record-type evidence the moment a user names a type. Four
+     * chronic negations for B were tried and all four failed: the phrase pair
+     * that matches 164,754 lines positively removes exactly ZERO negatively.
+     * Family C belongs to Construct, whose `*RecordModel*` marker is 99.8% that
+     * defect on the biz tier.
+     *
+     * Results on seven agency/environment pairs across four environments and
+     * three regions: LEECO 3,031,687 lines / 281,940 errors -> 282,655 / 2,252;
+     * SEATTLE PROD -> 83,418 / 15,201; LJCMG -> 17,014 / 5,899. Both named closed
+     * investigations survive. The inverse test confirms the misses are GIS,
+     * workflow and AES errors -- other categories' work, not lost records
+     * evidence.
+     *
+     * No `chatterExceptions`: audited on all seven pairs, routine chatter removes
+     * 0 errors and 0 warns under this scope.
+     */
+    bizMarkers: [
+      '*B1PERMIT*',
+      '*CapBusiness*',
+      '*CapService*',
+      '*CapWebService*',
+      '*capModel*',
+      '*createCap*',
+      '*CapScript*',
+      '*getCapID*',
+      '*CapIDModel*',
+      '*CapDetailModel*',
+      '*B1EXPIRATION*',
+      '*TMP_CAP*',
+      '*B1_ALT_ID*',
+      '*CapBll*',
+      '*CapUtil*',
+    ],
+    fields: [
+      capId,
+      {
+        id: 'recordType',
+        label: 'Record type',
+        placeholder: 'BLD_GENERAL',
+        hint: 'The record type as configured, not the display label.',
+        clause: (v) => `*${v.trim()}*`,
+        /*
+         * These two are here rather than in the category markers on purpose. As
+         * category markers they drag in the whole
+         * `getCapTypeByPK(:null/null/null/null)` family -- 164,754 lines a day of
+         * pure noise. Attached to this field they drop it to 20 lines while
+         * returning the record-type evidence the user asked for.
+         */
+        bizMarkers: ['*getCapTypeByPK*', '*CapTypeService*'],
+      },
+    ],
+    options: [],
+  },
+  {
+    id: 'batch',
+    label: 'Batch jobs',
+    /*
+     * The most evenly distributed of the new categories, and the strongest
+     * evidence of a genuine estate-wide problem: US PROD batch errors 224,057
+     * with the top tenant at 6.0%, and the 200-bucket ceiling covering only
+     * 50.1% of the population -- so more than 200 tenants logged a batch error
+     * in a single day. The tail is real customers at a flat ~410 each.
+     *
+     * TWO markers, and the underscore twin is the finding. Estate-wide 24h,
+     * `*BATCH_JOB*` AND NOT `*batchjob*` is 467,843 lines of which 439,277 are
+     * errors -- MORE errors than `*batchjob*` finds in total (401,795). Those are
+     * the SQL-level failures. Per agency `*batchjob*` alone misses 97.9%
+     * (SANDIEGO), 59.9% (BALTCO) and 59.7% (LEECO) of batch errors, and the
+     * error-level intersection is exactly 0 on all six agencies tested.
+     *
+     * Rejected with numbers: `*batch*` (residue is the chronic slow-report
+     * warning plus user-initiated ACA bulk actions), `*Quartz*` (matches
+     * "ROSE QUARTZ LN"), `*_scheduler*` (a different subsystem entirely).
+     */
+    bizMarkers: ['*batchjob*', '*BATCH_JOB*'],
+    /*
+     * `"BatchJobLog"` is in the chronic tier because it carries real errors that
+     * bury other investigations -- but for THIS category it is the subject.
+     * Errors with it hidden against kept: CGS 28 -> 879 (96.8% lost), BALTCO
+     * 3,207 -> 5,355. Sharper still, with it hidden the warn count is ZERO on six
+     * of six agencies, because `Batch Job was deleted` and `was interrupted` are
+     * warns and they carry the full job dump. Cost of this exception to other
+     * scopes: 0 errors across 9 of 9 scope-agency pairs.
+     */
+    chronicExceptions: ['"BatchJobLog"'],
+    forceEmse: true,
+    fields: [
+      {
+        id: 'batchJobName',
+        label: 'Batch job name',
+        placeholder: 'BATCH_EH_AGING_CREATESETS, or a number',
+        hint: 'There is no separate job ID -- the name carries it, and some job names are numbers. Note that EMSE print output from a batch script goes to the batch job output record, not to emse.log.',
+        clause: (v) => `*${v.trim()}*`,
+      },
+      {
+        id: 'batchScheduledDate',
+        label: 'Scheduled date',
+        placeholder: '2026-08-28',
+        hint: 'Matched against the StartDate in the job dump.',
+        clause: (v) => `*StartDate=${v.trim()}*`,
+      },
+    ],
+    options: [],
+  },
+  {
+    id: 'reporting',
+    label: 'Reports',
+    /*
+     * Five engines behind two message shapes. SSRS, Crystal, Ad Hoc, Insights
+     * and agency-custom REST services all funnel through
+     * `Reporting warning - report takes more than 60 sec: {...}` and
+     * `Reporting Errors: {...}`, so the ENGINE NAMES are the wrong markers --
+     * `*ReportServer*`, `*CReport*`, `*AdhocReport*` and `*XReport.aspx*`
+     * contribute exactly 0 unique biz-tier lines.
+     *
+     * The one-agency trap fired here in its clearest form. LEECO is 100% Crystal
+     * (`*ReportServer*` = 0, `*CReport*` = 28); FDNY is 100% SSRS
+     * (`*ReportServer*` = 1,829, `*CReport*` = 0). Measuring on either agency
+     * alone would have discarded the other's entire reporting surface.
+     *
+     * `*NoReportAssignError*` is 88.6% of all reporting errors in the estate and
+     * stays VISIBLE: hiding it costs 96.5% of FDNY's and 99.1% of
+     * WINEAUSTRALIA's reporting errors. The `"BatchJobLog"` lesson applied.
+     *
+     * "Empty report" is not logged at all -- five candidate shapes each measured
+     * zero -- so there is deliberately no field for it.
+     */
+    bizMarkers: [
+      '"report takes more than"',
+      '"Reporting Errors"',
+      '*NoReportAssignError*',
+      '*ReportButtonProperty*',
+    ],
+    /*
+     * Without this the category is pointless. With the markers in place but the
+     * pattern still hidden, the tool returned 1 warning for LEECO, 1 for FDNY and
+     * ZERO for TPCHD, BARRIE and WINEAUSTRALIA. Three real tickets, before and
+     * after: 0 rows -> 331, 0 rows -> 857, and 128 -> 12,985.
+     *
+     * `"It is risky to retrieve too many records"` is deliberately NOT exempted.
+     * The brief assumed it was a reporting pattern; measured, it is 35,636 lines
+     * of which ZERO carry any reporting marker, and 7,520 are
+     * `SELECT * FROM B1PERMIT` record searches. Exempting it recovered 0 lines on
+     * all five agencies.
+     */
+    chronicExceptions: ['"report takes more than"'],
+    fields: [
+      {
+        id: 'reportName',
+        label: 'Report name',
+        placeholder: 'cReceiptLee_All_ACA_new',
+        hint: 'As the user sees it. Spaces are safe here.',
+        clause: (v) => `*${v.trim()}*`,
+      },
+      {
+        id: 'reportRecord',
+        label: 'Record number or CAP ID',
+        placeholder: '26ABC-00000-01304',
+        hint: 'Reports are the one place the on-screen record number does appear, so either form works.',
+        clause: (v) => `*${v.trim()}*`,
+      },
+      {
+        id: 'reportId',
+        label: 'Report ID',
+        placeholder: '1267',
+        hint: 'Numeric ID from the report configuration.',
+        // `*reportID : 1267*` is HTTP 400 because of the colon, not the space --
+        // verified that `*a : b*` also 400s.
+        clause: (v) => `("reportID : ${v.trim()}" OR *reportID=${v.trim()}*)`,
+      },
+    ],
+    options: [],
+  },
 ];
 
 export function findCategory(id: string | undefined): ScopeCategory | undefined {
@@ -503,20 +857,22 @@ export function activeScopeExtras(
   categoryId: string | undefined,
   optionId: string | undefined,
   values: Record<string, string> | undefined
-): { bizMarkers: string[]; chatterExceptions: string[] } {
+): { bizMarkers: string[]; chatterExceptions: string[]; chronicExceptions: string[] } {
   const category = findCategory(categoryId);
   const bizMarkers: string[] = [];
   const chatterExceptions = [...(category?.chatterExceptions ?? [])];
+  const chronicExceptions = [...(category?.chronicExceptions ?? [])];
 
   if (values) {
     for (const field of fieldsFor(categoryId, optionId)) {
       if (!values[field.id]?.trim()) continue;
       bizMarkers.push(...(field.bizMarkers ?? []));
       chatterExceptions.push(...(field.chatterExceptions ?? []));
+      chronicExceptions.push(...(field.chronicExceptions ?? []));
     }
   }
 
-  return { bizMarkers, chatterExceptions };
+  return { bizMarkers, chatterExceptions, chronicExceptions };
 }
 
 /** Every field in play for the current selection, category-level then option-level. */

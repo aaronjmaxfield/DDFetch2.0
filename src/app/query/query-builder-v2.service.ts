@@ -13,6 +13,7 @@ import {
 import { activeScopeExtras, fieldsFor, findCategory, findOption } from './scopes.config';
 import {
   chronicExclusion,
+  chronicKeptSummary,
   chronicSummary,
   routineChatterExclusion,
 } from './noise.config';
@@ -185,11 +186,32 @@ export class QueryBuilderV2Service implements QueryEngine {
      * unscoped search is meant to be complete.
      */
     if (isScoped && input.showChronic !== true) {
-      const exclusion = chronicExclusion();
+      /*
+       * A category whose whole subject IS the chronic pattern must keep it. The
+       * reporting scope is the case: with the markers in place but the pattern
+       * still hidden, the tool returned 1 warning for LEECO, 1 for FDNY and ZERO
+       * for three other agencies, and three real tickets returned 0 rows, 0 rows
+       * and 128 rows against 331, 857 and 12,985 once exempted.
+       */
+      const { chronicExceptions } = activeScopeExtras(
+        input.scope?.category,
+        input.scope?.option,
+        input.scope?.fields
+      );
+      const exclusion = chronicExclusion(chronicExceptions);
       if (exclusion) {
         query = `${query} AND ${exclusion}`;
+        // Summary takes the same exceptions, or the warning names things that
+        // were not hidden -- which sends the user hunting for a toggle to
+        // recover data already in front of them.
         warnings.push(
-          `Hidden because they are constant in this environment rather than related to your search: ${chronicSummary()}. These are real warnings -- turn on "Show chronic warnings" to include them.`
+          `Hidden because they are constant in this environment rather than related to your search: ${chronicSummary(chronicExceptions)}. These are real warnings -- turn on "Show chronic warnings" to include them.`
+        );
+      }
+      const kept = chronicKeptSummary(chronicExceptions);
+      if (kept) {
+        warnings.push(
+          `Kept because this scope is about them: ${kept}. They are normally hidden as background noise.`
         );
       }
     }
@@ -315,7 +337,14 @@ export class QueryBuilderV2Service implements QueryEngine {
      * having, and on Oregon it returns 92x less. Free text is case insensitive
      * here, so one casing suffices.
      */
-    if (input.includeEmse || env.emseIsPrimaryBizLog) {
+    /*
+     * A category can force the arm on. EMSE and Batch both do, because their
+     * primary evidence is in that file -- and it is nearly free: measured on four
+     * agencies across two environments, the arm adds +1.0% to +40.0% lines and
+     * exactly ZERO errors every time.
+     */
+    const forceEmse = findCategory(input.scope?.category)?.forceEmse === true;
+    if (input.includeEmse || env.emseIsPrimaryBizLog || forceEmse) {
       identity.push(`(filename:emse.log AND *${upper}*)`);
     } else {
       warnings.push(

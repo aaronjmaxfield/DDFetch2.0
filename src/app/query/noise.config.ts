@@ -183,6 +183,37 @@ export const CHRONIC_PATTERNS: NoisePattern[] = [
     phrase: '"add current data to cache"',
     what: 'ACA cache misses that then repopulate the cache (logged as errors)',
   },
+  {
+    /*
+     * The single largest error family in the estate: 1,162,884 lines in 24h, all
+     * ~100% error, and 78.2% of every biz-tier error at one production agency
+     * when combined with its two relatives.
+     *
+     * It earns the chronic tier on evidence rather than volume. 300 sampled
+     * events produced ONE distinct message string, with no stack trace and no
+     * identifier of any kind -- so it cannot contain an answer to anything. That
+     * is the test for this tier, not size.
+     *
+     * Named correctly here: it is `I18NHelper/doI18N4RecordModel()`, not
+     * `INNHelper.doINNNRecordModel()` as previously recorded, and it is a
+     * SEPARATE family from both `getCapTypeByPK(:null/null/null/null)` and
+     * `capModel and serviceProviderCode of capId should not be null`.
+     */
+    phrase: '"doI18N4RecordModel"',
+    what: 'A known platform defect that logs one identical line with no detail',
+  },
+  {
+    /*
+     * 382,448 lines in 24h, 100% `status:error`, and 96.0% of everything a
+     * GIS-scoped MECKLENBURG search returns -- 85,516 of 89,041. It is an
+     * `ObjectNotFoundException` logged when a parcel simply has no conditions.
+     *
+     * Stated cost, because it is not free: a COHB parcel search goes from 22
+     * scoped lines to 7.
+     */
+    phrase: '*getAllParcelCond*',
+    what: 'Parcels with no conditions, logged as an exception',
+  },
 ];
 
 /**
@@ -227,8 +258,29 @@ export function routineChatterExclusion(exceptions: string[] = []): string {
   return exclusionFrom(kept);
 }
 
-export function chronicExclusion(): string {
-  return exclusionFrom(CHRONIC_PATTERNS);
+/**
+ * `exceptions` names chronic phrases to KEEP, for a scope whose whole subject is
+ * that pattern.
+ *
+ * The reporting category is why this exists. `"report takes more than"` is the
+ * pattern that forced the chronic tier into existence, and hiding it is right for
+ * a payment investigation and absurd for a reporting one. Measured with the
+ * reporting markers in place, the tool returned 1 warning for LEECO, 1 for FDNY
+ * and ZERO for three other agencies. Three real tickets went from 0 rows to 331,
+ * 0 to 857, and 128 to 12,985 once this was exempted.
+ *
+ * Batch needs it for the same reason in the other direction: `"BatchJobLog"` in
+ * the chronic tier took CGS from 879 errors to 28, and zeroed the warn count on
+ * six of six agencies -- and the warns are the lines carrying the full job dump.
+ */
+export function chronicExclusion(exceptions: string[] = []): string {
+  return exclusionFrom(keptChronic(exceptions));
+}
+
+function keptChronic(exceptions: string[]): NoisePattern[] {
+  return exceptions.length
+    ? CHRONIC_PATTERNS.filter((p) => !exceptions.includes(p.phrase))
+    : CHRONIC_PATTERNS;
 }
 
 /**
@@ -239,6 +291,18 @@ export function chronicExclusion(): string {
  * character turns it into "eDMS", which is worse. The `what` strings are written
  * to read correctly after a colon, so they are used verbatim.
  */
-export function chronicSummary(): string {
-  return CHRONIC_PATTERNS.map((p) => p.what).join('; ');
+export function chronicSummary(exceptions: string[] = []): string {
+  // Must take the same exceptions as chronicExclusion, or the warning names
+  // things that were NOT hidden -- which is worse than no warning, because the
+  // user then goes looking for a toggle to recover data that is already there.
+  return keptChronic(exceptions)
+    .map((p) => p.what)
+    .join('; ');
+}
+
+/** What a scope deliberately kept, for the positive counterpart warning. */
+export function chronicKeptSummary(exceptions: string[]): string {
+  return CHRONIC_PATTERNS.filter((p) => exceptions.includes(p.phrase))
+    .map((p) => p.what)
+    .join('; ');
 }

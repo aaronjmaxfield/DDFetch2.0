@@ -990,6 +990,114 @@ describe('QueryBuilderV2Service', () => {
          * iis, av.biz, av.web, av.indexer, capi, cdocapi, aca and acds. That was
          * a measurement, not an inference from the clause's shape.
          */
+        // ------------------------------------------- the five new categories
+
+        function scoped(category: string, fields: Record<string, string> = {}) {
+            return v2.build(input({ scope: { category, fields } }));
+        }
+
+        it("offers all eight scope categories", () => {
+            expect(SCOPES.map((c) => c.id)).toEqual([
+                "payment", "documents", "construct",
+                "gis", "emse", "records", "batch", "reporting",
+            ]);
+        });
+
+        it("GIS excludes the APO marker that would make it 96% wrong", () => {
+            // *APO* adds 196,579 errors of which 169,097 are IJ000453 ... FROM
+            // RSERV_PROV -- a generic agency-registry query caught through one
+            // incidental column name.
+            const { query } = scoped("gis");
+            expect(query).toContain("*parcel*");
+            expect(query).not.toContain("*APO*");
+        });
+
+        it("GIS recovers the record-to-parcel line the chatter tier removes", () => {
+            // Load-bearing: parcel 04704452 has 6 lines, 0 survive the scope
+            // without this, 4 survive with it.
+            const { query } = scoped("gis", { parcelNumber: "04704452" });
+            expect(query).not.toContain('-"Request path is:"');
+        });
+
+        it("EMSE keeps THROW off the category markers", () => {
+            // Platform-wide, not EMSE: outside EMSE it is 729,425 lines and
+            // 724,702 errors. As a category marker it injected 183,605 unrelated
+            // errors against CFW's 2,726 real ones.
+            const bare = scoped("emse").query;
+            expect(bare).not.toContain('"THROW"');
+            // On the trace-ID field it is correct, and restores the caller line.
+            const withTrace = scoped("emse", { emseTraceId: "W-20260820111100761" }).query;
+            expect(withTrace).toContain('"THROW"');
+        });
+
+        it("EMSE and Batch force the emse.log arm on", () => {
+            // +1.0% to +40.0% lines and exactly zero errors, measured on four
+            // agencies -- because emse.log is 100% status:info even though
+            // 1,905,251 of its lines carry an aa_exception block.
+            expect(scoped("emse").query).toContain("filename:emse.log");
+            expect(scoped("batch").query).toContain("filename:emse.log");
+            // Not forced elsewhere.
+            expect(scoped("payment").query).not.toContain("filename:emse.log");
+        });
+
+        it("Records keeps the null-CAP-type family off the category markers", () => {
+            // *getCapTypeByPK* as a category marker drags in 164,754 lines a day
+            // of getCapTypeByPK(:null/null/null/null). On the recordType field it
+            // drops to 20 while still answering the question asked.
+            expect(scoped("records").query).not.toContain("*getCapTypeByPK*");
+            expect(scoped("records", { recordType: "BLD_GENERAL" }).query).toContain(
+                "*getCapTypeByPK*"
+            );
+        });
+
+        it("Batch searches the underscore twin, which holds most of the errors", () => {
+            // *BATCH_JOB* AND NOT *batchjob* is 467,843 lines with 439,277
+            // errors -- more errors than *batchjob* finds in total. Error-level
+            // intersection is exactly 0 on all six agencies tested.
+            const { query } = scoped("batch");
+            expect(query).toContain("*batchjob*");
+            expect(query).toContain("*BATCH_JOB*");
+        });
+
+        it("Batch un-hides BatchJobLog, and says it kept it", () => {
+            // With it hidden: CGS 28 errors instead of 879, and the warn count is
+            // zero on six of six agencies -- and the warns carry the job dump.
+            const { query, warnings } = scoped("batch");
+            expect(query).not.toContain('-"BatchJobLog"');
+            expect(warnings.some((w) => w.includes("Kept because this scope is about them"))).toBe(true);
+        });
+
+        it("Reporting un-hides the slow-report warning it exists to find", () => {
+            // Before this the tool returned 1 warning for LEECO, 1 for FDNY and
+            // zero for three other agencies. Three real tickets: 0 rows -> 331,
+            // 0 -> 857, 128 -> 12,985.
+            const { query } = scoped("reporting");
+            expect(query).not.toContain('-"report takes more than"');
+            // But NOT the record-search pattern the brief wrongly assumed was
+            // reporting: 35,636 lines, zero carrying any reporting marker.
+            expect(query).toContain('-"It is risky to retrieve too many records"');
+        });
+
+        it("Reporting scopes on message shapes, not engine names", () => {
+            // The engine names contribute exactly 0 unique biz-tier lines, and
+            // LEECO/FDNY are 100% Crystal and 100% SSRS respectively -- so an
+            // engine-name marker set discards one of them entirely.
+            const { query } = scoped("reporting");
+            expect(query).toContain('"report takes more than"');
+            expect(query).not.toContain("*ReportServer*");
+            expect(query).not.toContain("*CReport*");
+        });
+
+        it("does not name a kept chronic pattern as hidden", () => {
+            // chronicSummary must take the same exceptions as chronicExclusion,
+            // or the warning sends the user hunting for a toggle to recover data
+            // already in front of them.
+            const { warnings } = scoped("reporting");
+            const hidden = warnings.find((w) => w.includes("constant in this environment"));
+            expect(hidden).toBeDefined();
+            expect(hidden).not.toContain("Slow-report warnings");
+        });
+
         it("has no globally-ANDed clause that can delete a whole tier", () => {
             const ctx = {
                 agencyUpper: "AGCY",
