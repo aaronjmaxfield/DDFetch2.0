@@ -31,6 +31,23 @@ describe('QueryBuilderV2Service', () => {
         };
     }
 
+    it('keeps the line that explains a "webhook not received" failure', () => {
+        /*
+         * Found on a real CRC-TEST failure, 2026-09-02. `AccelaAdapter webhook
+         * not recieved` is always emitted together with `time out for creating
+         * the real cap` -- identical per-agency counts over 7 days -- and the
+         * timeout line is the half that says what actually went wrong.
+         *
+         * `*AccelaAdapter*` recovered only the first. The timeout line contains
+         * no payment word, so the payment markers hid it: 1,850 existed over 7
+         * days and 172 survived.
+         */
+        const { query } = v2.build(
+            input({ scope: { category: 'payment', option: 'forte' } })
+        );
+        expect(query).toContain('"creating the real cap"');
+    });
+
     // -------------------------------------------------------------- raw mode
 
     describe('raw mode', () => {

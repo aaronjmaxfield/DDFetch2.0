@@ -314,6 +314,8 @@ const CATEGORIES: ScopeCategory[] = [
         'The record number on the screen does not appear in payment logs. Use the 5-5-5 CAP ID from the record URL.',
         'If the agency uses a gateway that is not in the list, choose Custom / third-party adapter -- that covers all 115 of them.',
         'An IVR or kiosk payment produces no adapter logs at all, so an empty result there is expected rather than a sign nothing happened.',
+        '"Webhook not received" usually means it WAS received. Check the adapter for "received webhook response" at the time of payment -- if it is there, the money was taken and the problem is downstream, in Citizen Access creating the record.',
+        'If the adapter received it but Citizen Access did not, search the SAME agency in the OTHER environments too. A wrong callback URL in the adapter config delivers the postback to a sibling environment, and the only trace is an error in THAT environment\'s log.',
       ],
     },
     fields: [capId, transactionId, providerTxId],
@@ -380,6 +382,31 @@ const CATEGORIES: ScopeCategory[] = [
       // 38. `*F4PAYMENT_SEQ*` needed nothing: `*F4PAYMENT*` already substring-
       // matches it inside the token.
       '*ETRANSACTION*',
+      /*
+       * -----------------------------------------------------------------------
+       * THE LINE THAT SAYS WHY THE WEBHOOK WAS "NOT RECEIVED" (added 2026-09-02)
+       * -----------------------------------------------------------------------
+       * `AccelaAdapter webhook not recieved` never appears alone. It is always
+       * preceded, in the same second, by `time out for creating the real cap` --
+       * and those two are emitted as a pair, not merely correlated. Measured
+       * over 7 days, the per-agency counts are IDENTICAL: LEECO 392/392,
+       * PINELLAS 273/273, SCMN 172/172, NORTHPORT 133/133, COHB 83/83, MCPHD
+       * 82/82, GRANDRAPIDS 75/75, HOLLYWOOD 67/67, MERIDIAN 59/59, CHARLOTTE
+       * 49/49. So the user-facing message is really "CAP creation timed out",
+       * which is the half that says what to do about it.
+       *
+       * And `*AccelaAdapter*` recovered only one of the pair. The timeout line
+       * contains no payment word at all, so the payment markers were hiding it:
+       * 1,850 exist over 7 days and 172 survived -- 91% removed by the very
+       * scope someone picks BECAUSE they are chasing a payment.
+       *
+       * Quoted rather than wildcard-wrapped, against the convention above,
+       * because this is a multi-word phrase and those over-match: the wildcard
+       * form is 2,007 against the quoted 1,852, and loosening it further is
+       * ruinous -- `*the real cap*` is 26,274 and `*real cap*` is 101,249. The
+       * quoted form recovers all 1,850 at 265 lines a day estate-wide.
+       */
+      '"creating the real cap"',
     ],
     /*
      * `lSeqRemaining` passes the routine-chatter admission test -- it contains
