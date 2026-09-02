@@ -151,6 +151,33 @@
           </div>
         </div>
 
+        <!--
+          Recently and frequently used agency/environment combinations.
+
+          One click fills all THREE fields, which is the point: ServProvCode,
+          Host and Environment are three separate actions that are almost always
+          the same three values. Renders nothing at all until there is history,
+          so it costs no height on a first run and ~26px thereafter.
+        -->
+        @if (recentSearches.length) {
+          <div class="row form-row form-row-tight">
+            <div class="col-md-12 recent-row">
+              <span class="recent-label">Recent</span>
+              @for (r of recentSearches; track r.agency + r.host + r.environment) {
+                <button
+                  type="button"
+                  class="recent-chip"
+                  [attr.aria-label]="'Use ' + r.agency + ' ' + r.host + ' ' + r.environment"
+                  (click)="applyRecent(r)"
+                >
+                  {{ r.agency }}
+                  <span class="recent-env">{{ r.host }} {{ r.environment }}</span>
+                </button>
+              }
+            </div>
+          </div>
+        }
+
         <!-- Timeframe and timestamps -->
         <div class="row form-row">
           <div class="col-md-4 mb-2">

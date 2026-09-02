@@ -420,6 +420,58 @@ label {
   margin-left: -3px;
 }
 
+/* ---------------------------------------------------------------------------
+   Recently used agency/environment chips
+   --------------------------------------------------------------------------- */
+.recent-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recent-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+
+/* Deliberately quiet. These are a shortcut, not a call to action -- at button
+   weight they would compete with Fetch. */
+.recent-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--brand-line);
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.6;
+
+  &:hover {
+    border-color: var(--brand);
+    background: #fff;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
+.recent-env {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
 /* A one-line note under a section label. Explains what a group of controls is
    for, where a per-control marker can only explain one of them. */
 .section-note {

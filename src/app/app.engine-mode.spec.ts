@@ -324,6 +324,39 @@ describe('AppComponent engine modes', () => {
 
     // ------------------------------------------------------------ new controls
 
+    // ---------------------------------------------------- recent searches
+
+    it('a recent chip fills all three fields, including the DOM select value', () => {
+        /*
+         * Asserts the DOM value, not the component field, because that is where
+         * the bug was. `applyRecent` rebuilds `availableEnvironments` and then
+         * sets `select.value`, but the <option> elements come from an @for and do
+         * not exist until Angular renders -- so the assignment was a no-op
+         * against a missing option and the environment stayed on --SELECT--
+         * while the agency and host filled correctly. A test on
+         * `component.environment` passes either way; only the select reveals it.
+         */
+        component.recentSearches = [
+            { agency: 'CRC', host: 'US', environment: 'TEST', count: 9, lastUsed: 1 },
+        ];
+        fixture.detectChanges();
+
+        component.applyRecent(component.recentSearches[0]);
+        fixture.detectChanges();
+
+        expect((el('inputServProvCode') as HTMLInputElement).value).toBe('CRC');
+        expect((el('inputHost') as HTMLSelectElement).value).toBe('US');
+        expect((el('inputEnvironment') as HTMLSelectElement).value).toBe('TEST');
+        expect(component.environment).toBe('TEST');
+    });
+
+    it('renders no recent row until there is history', () => {
+        // Costs no height on a first run; +30px once populated.
+        component.recentSearches = [];
+        fixture.detectChanges();
+        expect(fixture.nativeElement.querySelector('.recent-chip')).toBeNull();
+    });
+
     it('hides the engine selector by default', () => {
         // Hidden as of 2026-08-28: it is a testing affordance, and "New (v2)"
         // means nothing to the frontline users the form is for. The engine, the

@@ -1,7 +1,8 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { environmentsFor } from './query/environments.config';
 import { LegacyQueryBuilderService } from './query/legacy-query-builder.service';
 import { QueryBuilderV2Service } from './query/query-builder-v2.service';
+import { RecentSearch, RecentSearchesService } from './query/recent-searches.service';
 import { EngineId, QueryInput, QueryResult } from './query/query-input.model';
 import {
   fieldsFor,
@@ -73,7 +74,9 @@ export class AppComponent {
 
   constructor(
     private legacyEngine: LegacyQueryBuilderService,
-    private v2Engine: QueryBuilderV2Service
+    private v2Engine: QueryBuilderV2Service,
+    private recent: RecentSearchesService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit() {
@@ -81,6 +84,7 @@ export class AppComponent {
     this.activeBeginCalendarValue = beginTimestamp.toISOString().slice(0, 16);
     this.activeEndCalendarValue = endTimestamp.toISOString().slice(0, 16);
     this.readmeHidden = true;
+    this.recentSearches = this.recent.list();
   }
 
   toggleReadme() {
@@ -142,6 +146,14 @@ export class AppComponent {
     const [beginUnix, endUnix] = this.convertTimestamps();
     if (!this.validateTimestamps(beginUnix, endUnix)) return;
     this.setValues(beginUnix, endUnix);
+
+    /*
+     * Recorded here, after validation, so a half-filled form or a typo that
+     * failed validation does not pollute the suggestions. Only the
+     * agency/host/environment triple is stored -- never the scoped identifiers.
+     */
+    this.recent.record(this.servProvCode, this.host, this.environment);
+    this.recentSearches = this.recent.list();
 
     const input = this.buildQueryInput();
     const previews: QueryPreview[] = [];
@@ -377,6 +389,52 @@ export class AppComponent {
   private convertUTCtoLocal(utcDate: Date): Date {
     const localTimezoneOffset = utcDate.getTimezoneOffset();
     return new Date(utcDate.getTime() - localTimezoneOffset * 60000);
+  }
+
+  /**
+   * Up to three remembered agency/environment combinations, most useful first.
+   * Read once per change-detection pass rather than on every template binding.
+   */
+  recentSearches: RecentSearch[] = [];
+
+  /**
+   * Fill the whole triple from one click. The point of the feature is that
+   * ServProvCode, Host and Environment are three separate actions that are
+   * almost always the same three values.
+   */
+  applyRecent(entry: RecentSearch) {
+    const agencyEl = this.getInputElement('inputServProvCode') as HTMLInputElement | null;
+    const hostEl = this.getInputElement('inputHost') as HTMLSelectElement | null;
+    if (!agencyEl || !hostEl) return;
+
+    agencyEl.value = entry.agency;
+    this.servProvCode = entry.agency;
+
+    hostEl.value = entry.host;
+    this.onHostChange();
+
+    /*
+     * detectChanges() is load-bearing, and this failed silently without it.
+     *
+     * `onHostChange()` repopulates `availableEnvironments`, but the <option>
+     * elements come from an @for in the template, so they do not exist in the
+     * DOM until Angular renders. Assigning `select.value` before that render is
+     * a no-op against a missing option: agency and host filled correctly and the
+     * environment stayed on --SELECT--, which then failed validation with the
+     * chip visibly "applied".
+     *
+     * A unit test would not have caught it -- `this.environment` was being set
+     * either way. It showed up only in a browser, which is why the component
+     * test below asserts the DOM value rather than the field.
+     */
+    this.cdr.detectChanges();
+
+    const envEl = this.getInputElement('inputEnvironment') as HTMLSelectElement | null;
+    if (envEl) {
+      envEl.value = entry.environment;
+      this.environment = entry.environment;
+    }
+    this.previews = [];
   }
 
   onHostChange() {
