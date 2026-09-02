@@ -751,9 +751,37 @@ describe('QueryBuilderV2Service', () => {
         const { query, warnings } = v2.build(input({ additionalServices: ['SecurePay'] }));
 
         expect(query).toContain('app-pci-payment-adapter');
-        expect(query).toContain('@agencycode:AGCY');
+        /*
+         * Re-measured 2026-09-02 over 7 days and 283,218 lines: @SERV_PROV_CODE
+         * is the ONLY agency facet on this service. @agencycode -- which this
+         * test used to assert -- returns zero buckets, along with @Agency,
+         * @usr.agency and @Properties.log.Agency. Both casings are required
+         * because facet values are case sensitive (SECUREPAYAUTO 38,160,
+         * securepayauto 35,363).
+         */
+        expect(query).toContain('(@SERV_PROV_CODE:*agcy* OR @SERV_PROV_CODE:*AGCY*)');
+        expect(query).not.toContain('@agencycode');
+        expect(query).not.toContain('@usr.agency');
         // The PCI cluster caveat must surface to the user.
         expect(warnings.some((w) => w.includes('PCI'))).toBe(true);
+    });
+
+    it('A13: includes the Payrix stub gateway, unscoped by agency', () => {
+        // Was missing entirely. 95 lines over 7 days of which 12 are errors, and
+        // it carries no facet of any kind -- so it comes back for the whole
+        // environment rather than being guessed at by free text and lost.
+        const { query, warnings } = v2.build(input({ additionalServices: ['SecurePay'] }));
+
+        expect(query).toContain('service:app-pci-payrix-stub-service AND env:prod-pci');
+        expect(warnings.some((w) => w.includes('stub gateway'))).toBe(true);
+    });
+
+    it('A13: reaches the ConfigStore agency through the request path as well as free text', () => {
+        // @MODULE holds the request path and the agency is inside it for
+        // configuration reads (/adapter/v1/configurations/{AGENCY}), which free
+        // text alone cannot be relied on to find for a short agency code.
+        const { query } = v2.build(input({ additionalServices: ['SecurePay'] }));
+        expect(query).toContain('(*AGCY* OR @MODULE:*AGCY*)');
     });
 
     it('A13: legacy had no SecurePay option', () => {

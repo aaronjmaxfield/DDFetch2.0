@@ -316,6 +316,7 @@ const CATEGORIES: ScopeCategory[] = [
         'An IVR or kiosk payment produces no adapter logs at all, so an empty result there is expected rather than a sign nothing happened.',
         '"Webhook not received" usually means it WAS received. Check the adapter for "received webhook response" at the time of payment -- if it is there, the money was taken and the problem is downstream, in Citizen Access creating the record.',
         'If the adapter received it but Citizen Access did not, search the SAME agency in the OTHER environments too. A wrong callback URL in the adapter config delivers the postback to a sibling environment, and the only trace is an error in THAT environment\'s log.',
+        'An agency can have more than one adapter configured, so an empty adapter result does not mean the adapter is broken -- it can mean this payment went through a different one. Confirm which by searching the trace ID and reading the biz lines: they name the adapter being called.',
       ],
     },
     fields: [capId, transactionId, providerTxId],

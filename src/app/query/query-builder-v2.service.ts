@@ -923,7 +923,7 @@ export class QueryBuilderV2Service implements QueryEngine {
     }
 
     if (target.agencyScope === 'attributes') {
-      clauses.push(this.agencyScopeForServices(agency));
+      clauses.push(this.agencyScopeForServices(agency, target.agencyFacets));
     } else if (target.agencyScope === 'freetext') {
       // The agency is inside an unparsed message body, so there is no facet to
       // filter on. Free-text matching is case insensitive -- unlike facets --
@@ -952,9 +952,27 @@ export class QueryBuilderV2Service implements QueryEngine {
    * payment-adapter-service query confirmed they do, and that facet values are
    * case sensitive, so both are needed.
    */
-  private agencyScopeForServices(agency: string): string {
+  private agencyScopeForServices(agency: string, only?: string[]): string {
     const upper = agency.toUpperCase();
     const lower = agency.toLowerCase();
+
+    /*
+     * A target can name the facets it actually has. Measured on
+     * app-pci-payment-adapter over 7 days (283,218 lines): @SERV_PROV_CODE is
+     * the only agency facet with any buckets at all, and @agencycode, @Agency,
+     * @usr.agency and @Properties.log.Agency each return ZERO. OR-ing those four
+     * in changes no result and adds four dead terms to a URL people have to read
+     * -- and worse, it implies the tool checked something it did not.
+     */
+    if (only?.length) {
+      const parts = only.flatMap((f) =>
+        f === '@SERV_PROV_CODE'
+          ? [`@SERV_PROV_CODE:*${lower}*`, `@SERV_PROV_CODE:*${upper}*`]
+          : [`${f}:*${upper}*`]
+      );
+      return parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0];
+    }
+
     return (
       `(@agencycode:${upper}` +
       ` OR @Agency:*${upper}*` +

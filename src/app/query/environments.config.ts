@@ -367,6 +367,17 @@ export interface ServiceTarget {
    */
   agencyScope: AgencyScope;
   /**
+   * Restricts `agencyScope: 'attributes'` to the facets this target actually
+   * carries. Omit to OR all six, which is the right default for a target whose
+   * facets have not been measured.
+   *
+   * Worth being specific where it has been measured: the default set exists
+   * because different containerised services populate different fields, but
+   * OR-ing in facets that return zero buckets adds terms to a URL a human has
+   * to read AND implies the tool checked something it did not.
+   */
+  agencyFacets?: string[];
+  /**
    * Overrides the default `*{AGENCY}*` term used by `agencyScope: 'freetext'`.
    *
    * The bare wildcard is too blunt on some targets -- it matches hex fragments
@@ -486,13 +497,59 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
     category: 'payment',
     targets: [
       {
-        // CONFIRMED: the service exists, runs on the PCI clusters, and carries
-        // @SERV_PROV_CODE, @MODULE, @PLATFORM and @PROVIDER like PAS does.
+        /*
+         * RE-MEASURED 2026-09-02, 7 days, 283,218 lines.
+         *
+         * The old comment said this service "carries @SERV_PROV_CODE, @MODULE,
+         * @PLATFORM and @PROVIDER like PAS does". True as far as it went, and it
+         * hid the part that matters: @SERV_PROV_CODE is the ONLY agency facet
+         * here. @agencycode, @Agency, @usr.agency and @Properties.log.Agency all
+         * return ZERO buckets, so four of the six terms the generic agency
+         * scope emits were dead weight -- see `agencyFacets`.
+         *
+         * What IS here, and is worth knowing:
+         *   @SERV_PROV_CODE  both casings, e.g. SECUREPAYAUTO 38,160 and
+         *                    securepayauto 35,363. Both are needed; facet
+         *                    values are case sensitive.
+         *   @PROVIDER        payrix-multimerchant 72,792, epayments3 470,
+         *                    invalid-test-provider 428
+         *   @PLATFORM        aca 45,819, aa 36,364
+         *   @MODULE          present but EMPTY on 65,382 of ~72,000. Do not
+         *                    filter on it.
+         *   status           info 198,863, debug 82,939, warn 988, error 428
+         *
+         * That debug figure is the useful difference from Forte. 29% of this
+         * service's lines are debug and they include `parsed agency
+         * configuration` / `retrieved agency configuration`, which carry the
+         * PaymentCallBackAcaURL and the whole provider block. The equivalent
+         * lines are UNAVAILABLE on the standard adapter, whose nonprod instance
+         * ships zero debug -- so a callback-URL misconfiguration is directly
+         * visible for SecurePay and has to be inferred for Forte.
+         */
         field: 'service',
         values: ['app-pci-payment-adapter'],
         envClause: pciEnvClause,
         agencyScope: 'attributes',
-        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.7% over 30 days) is on the engineering cluster eng-arch-pci rather than prod-pci, so non-production searches include it. A PROD search covers prod-pci only and will look sparse by comparison -- that is accurate, not a missing filter.',
+        agencyFacets: ['@SERV_PROV_CODE'],
+        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci rather than prod-pci, so non-production searches include it. A PROD search covers prod-pci only -- 1,171 lines over 30 days against 283,393 -- and will look sparse by comparison; that is accurate, not a missing filter. Unlike the standard payment adapter, this service does ship debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results.',
+      },
+      {
+        /*
+         * The Payrix stub gateway. Added 2026-09-02: it was missing entirely,
+         * and it is where a stubbed gateway failure lands in non-production --
+         * 95 lines over 7 days of which 12 are errors, which is a 13% error
+         * rate rather than background noise.
+         *
+         * No facets at all: @SERV_PROV_CODE, @PROVIDER, @PLATFORM and @MODULE
+         * every one returns zero buckets, and the volume is far too low to
+         * justify a free-text agency guess that could exclude the errors. So it
+         * comes back for the whole environment, like ADS.
+         */
+        field: 'service',
+        values: ['app-pci-payrix-stub-service'],
+        envClause: pciEnvClause,
+        agencyScope: 'none',
+        note: 'The Payrix stub gateway used in non-production carries no agency field of any kind, so its lines are returned for the whole environment rather than just this agency. It is low volume (95 lines a week) and 13% of it is errors, so it is worth reading rather than skipping.',
       },
       {
         // The most informative target for SecurePay, and the reason this entry
@@ -507,10 +564,33 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         // adapter id, but the literal string SERV_PROV_CODE never does, so free
         // text is the only thing that matches. Confirmed: @SERV_PROV_CODE is
         // absent as a facet and a "SERV_PROV_CODE" text search returns zero.
+        /*
+         * RE-MEASURED 2026-09-02, 7 days, 23,384 lines. The "no facets"
+         * conclusion holds -- @SERV_PROV_CODE, @PROVIDER and @PLATFORM all
+         * return zero buckets -- but there IS one usable facet the earlier pass
+         * missed: @MODULE carries the request path, and for configuration reads
+         * the agency is IN that path:
+         *
+         *   /adapter/v1/configurations/SECUREPAYTEST            939
+         *   /adapter/v1/configuration/{AGENCY}-PAYMENT-...      (per request)
+         *
+         * So the agency handle is `free text OR the config path`, which is
+         * strictly better than free text alone: the path form cannot be
+         * defeated by a short agency code colliding with a hex fragment.
+         *
+         * Also worth knowing what is NOT agency-specific here. Roughly 6,400 of
+         * the 23,384 lines are provider asset fetches -- code-mapping.csv 1,188,
+         * i18n-payrix.js 1,146, payrix-payfields.js 1,142, checkout-form.css
+         * 852 and the mustache templates -- which belong to the provider rather
+         * than to any agency, so they are correctly excluded by an agency
+         * filter rather than missing from it.
+         */
         field: 'service',
         values: ['app-pci-configstore'],
         envClause: pciEnvClause,
         agencyScope: 'freetext',
+        freetextTerm: (agencyLower) =>
+          `(*${agencyLower.toUpperCase()}* OR @MODULE:*${agencyLower.toUpperCase()}*)`,
       },
       eventLog,
     ],
