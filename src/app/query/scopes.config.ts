@@ -119,8 +119,15 @@ export interface ScopeOption {
    * service-branch builder is reused rather than reimplemented.
    */
   serviceUi?: string;
-  /** Emitted as `(@PROVIDER:<urn> OR -@PROVIDER:*)` -- see the note above. */
-  providerUrn?: string;
+  /**
+   * Emitted as `(@PROVIDER:<urn> OR ... OR -@PROVIDER:*)` -- see the note above.
+   *
+   * An array where an adapter logs under more than one provider id. That is not
+   * a modelling nicety: SecurePay's ACA path currently tags itself
+   * `urn:provider-id:epayments3`, so filtering on payrix alone deleted the ACA
+   * half of it. See the SecurePay option.
+   */
+  providerUrn?: string | string[];
   /**
    * AND-ed onto the whole query when this option is selected, the same way
    * `providerUrn` is.
@@ -438,8 +445,45 @@ const CATEGORIES: ScopeCategory[] = [
         id: 'securepay',
         label: 'SecurePay',
         serviceUi: 'SecurePay',
-        // SecurePay is Payrix on the wire. Confirmed on the facet.
-        providerUrn: 'urn:provider-id:payrix-multimerchant',
+        /*
+         * ---------------------------------------------------------------------
+         * SECUREPAY'S ACA PATH MISLABELS ITSELF AS EPAYMENTS3. Added 2026-09-02.
+         * ---------------------------------------------------------------------
+         * SecurePay is Payrix on the wire, and `payrix-multimerchant` alone was
+         * the obvious filter. It deleted the ACA half of the adapter, because
+         * the ACA handling is not currently working correctly and tags its lines
+         * with the wrong provider id.
+         *
+         * Reported by the user from direct knowledge of the platform state, and
+         * the facets agree exactly. Measured over 7 days on
+         * app-pci-payment-adapter:
+         *
+         *   @PROVIDER epayments3, by platform:  aca 470, aa 0
+         *   @PROVIDER payrix,     by platform:  aca 40,418, aa 31,215
+         *
+         * Every epayments3-tagged line in the PCI adapter is an ACA line -- 470
+         * of 470, none on AA -- and the agencies carrying it are the SecurePay
+         * ones: securepayauto 335, SECUREPAYAUTO 69, securepaytest 57, seattle
+         * 9. A genuine Official Payments agency would not be in the PCI payment
+         * adapter at all.
+         *
+         * The damage from filtering on payrix alone, ACA lines lost over 7 days:
+         *   securepayauto  32,168 -> 31,525   (643 lost)
+         *   securepaytest   3,675 ->  3,618   ( 57 lost)
+         *   seattle            29 ->     20   (  9 lost)
+         *
+         * Small as a share, and the wrong lines to lose: they are the ACA path
+         * at the moment it is misbehaving.
+         *
+         * Accepting both ids cannot pull in a real Official Payments agency,
+         * because this clause only ever applies alongside the SecurePay service
+         * arms, which are themselves agency-scoped by @SERV_PROV_CODE.
+         *
+         * REMOVE `epayments3` once the ACA provider tagging is fixed, and check
+         * the aa/aca split above first -- an epayments3 line appearing on AA
+         * would mean this reasoning no longer holds.
+         */
+        providerUrn: ['urn:provider-id:payrix-multimerchant', 'urn:provider-id:epayments3'],
       },
       {
         /*

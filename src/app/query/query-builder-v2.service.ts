@@ -152,7 +152,22 @@ export class QueryBuilderV2Service implements QueryEngine {
        * another -- so a bare AND would cut the trace in half. This form removed
        * exactly the other providers' lines and kept both Forte traces whole.
        */
-      query = `${query} AND (@PROVIDER:"${scopeOption.providerUrn}" OR -@PROVIDER:*)`;
+      /*
+       * An adapter can log under more than one provider id, so this takes a
+       * list. SecurePay needs it: its ACA path currently tags itself
+       * `epayments3`, and filtering on payrix alone deleted the ACA half.
+       */
+      const urns = Array.isArray(scopeOption.providerUrn)
+        ? scopeOption.providerUrn
+        : [scopeOption.providerUrn];
+      const providerClause = urns.map((u) => `@PROVIDER:"${u}"`).join(' OR ');
+      query = `${query} AND (${providerClause} OR -@PROVIDER:*)`;
+
+      if (urns.length > 1) {
+        warnings.push(
+          `This adapter is logged under more than one provider id (${urns.join(', ')}), so all of them are included. For SecurePay that is deliberate: the Citizen Access path currently tags its lines with the wrong provider id, and filtering on the correct one alone hid the ACA side of the adapter.`
+        );
+      }
     }
 
     /*

@@ -531,7 +531,7 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         envClause: pciEnvClause,
         agencyScope: 'attributes',
         agencyFacets: ['@SERV_PROV_CODE'],
-        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci rather than prod-pci, so non-production searches include it. A PROD search covers prod-pci only -- 1,171 lines over 30 days against 283,393 -- and will look sparse by comparison; that is accurate, not a missing filter. Unlike the standard payment adapter, this service does ship debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results.',
+        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci rather than prod-pci, so non-production searches include it. A PROD search covers prod-pci only -- 1,171 lines over 30 days against 283,393 -- and will look sparse by comparison; that is accurate, not a missing filter. Unlike the standard payment adapter, this service does ship debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results. Note that SecurePay\'s Citizen Access handling is not currently working correctly and tags its lines with the epayments3 provider id rather than payrix, so a SecurePay result can look like a different adapter entirely -- the provider filter allows for that.',
       },
       {
         /*

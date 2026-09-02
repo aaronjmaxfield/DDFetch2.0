@@ -766,6 +766,39 @@ describe('QueryBuilderV2Service', () => {
         expect(warnings.some((w) => w.includes('PCI'))).toBe(true);
     });
 
+    it('A13: SecurePay accepts the epayments3 provider id its ACA path mislabels itself with', () => {
+        /*
+         * SecurePay's Citizen Access handling is not currently working correctly
+         * and tags its lines `urn:provider-id:epayments3` instead of payrix, so
+         * filtering on payrix alone deleted the ACA half of the adapter.
+         *
+         * The facets corroborate it exactly: over 7 days every epayments3 line
+         * in the PCI adapter is an ACA line (470 of 470, none on AA) and they
+         * belong to the SecurePay agencies -- securepayauto 335, SECUREPAYAUTO
+         * 69, securepaytest 57. ACA lines lost to the payrix-only filter:
+         * securepayauto 643, securepaytest 57, seattle 9.
+         */
+        const { query, warnings } = v2.build(
+            input({ scope: { category: 'payment', option: 'securepay' } })
+        );
+
+        expect(query).toContain('@PROVIDER:"urn:provider-id:payrix-multimerchant"');
+        expect(query).toContain('@PROVIDER:"urn:provider-id:epayments3"');
+        // Absence still has to be tolerated -- only ~50% of adapter lines carry
+        // the attribute at all, so a bare AND would halve the trace.
+        expect(query).toContain('OR -@PROVIDER:*)');
+        expect(warnings.some((w) => w.includes('wrong provider id'))).toBe(true);
+    });
+
+    it('A13: an adapter with a single provider id is unchanged', () => {
+        // The list form must not alter Forte, which is correctly tagged.
+        const { query, warnings } = v2.build(
+            input({ scope: { category: 'payment', option: 'forte' } })
+        );
+        expect(query).toContain('(@PROVIDER:"urn:provider-id:forte" OR -@PROVIDER:*)');
+        expect(warnings.some((w) => w.includes('more than one provider id'))).toBe(false);
+    });
+
     it('A13: includes the Payrix stub gateway, unscoped by agency', () => {
         // Was missing entirely. 95 lines over 7 days of which 12 are errors, and
         // it carries no facet of any kind -- so it comes back for the whole
