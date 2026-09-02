@@ -1120,6 +1120,58 @@ describe('QueryBuilderV2Service', () => {
             ).toEqual([]);
         });
 
+        it("ORs alternative identifiers so one unlogged value cannot zero the result", () => {
+            /*
+             * The reported failure: a document name plus a file key returned
+             * nothing. They are two names for the same document and the name
+             * was never recorded for that upload -- `*Doc1.pdf*` is zero
+             * estate-wide -- so AND-ing let one unlogged value destroy a good
+             * one.
+             */
+            const { query, warnings } = v2.build(
+                input({
+                    scope: {
+                        category: "documents",
+                        option: "ads",
+                        fields: { documentName: "MyDoc.pdf", fileKey: "0000aaaa" },
+                    },
+                })
+            );
+            expect(query).toContain("*MyDoc.pdf* OR *FileKey=0000aaaa*");
+            expect(warnings.some((w) => w.includes("treated as alternatives"))).toBe(true);
+        });
+
+        it("still ANDs a genuine filter alongside an identifier", () => {
+            // A record TYPE is a property to narrow by, not another name for the
+            // record, so it stays AND-ed.
+            const { query } = v2.build(
+                input({
+                    scope: {
+                        category: "records",
+                        fields: { capId: "26ABC-00000-00001", recordType: "ABC_GENERAL" },
+                    },
+                })
+            );
+            expect(query).toContain("*26ABC-00000-00001* AND *ABC_GENERAL*");
+        });
+
+        it("says nothing about alternatives when only one is filled", () => {
+            const { query, warnings } = v2.build(
+                input({ scope: { category: "documents", fields: { documentId: "15612" } } })
+            );
+            expect(query).toContain("*AGCY,15612*");
+            expect(warnings.some((w) => w.includes("treated as alternatives"))).toBe(false);
+        });
+
+        it("keeps the document-workflow EMSE scripts", () => {
+            // DocumentUploadBefore and DocumentUploadAfter are 358,016 and
+            // 540,744 lines a day and are already caught by the `*document*`
+            // marker -- 358,034 of 358,038 measured. This guards that rather
+            // than adding a redundant marker.
+            const { query } = v2.build(input({ scope: { category: "documents" } }));
+            expect(query).toContain("*document*");
+        });
+
         it("has no chatterException that does not match a real pattern", () => {
             // A typo in chatterExceptions silently does nothing, which would
             // look like the fix working.

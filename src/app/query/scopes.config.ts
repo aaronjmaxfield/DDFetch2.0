@@ -86,6 +86,21 @@ export interface ScopeField {
   /** Chronic phrases to stop excluding while this field has a value. */
   chronicExceptions?: string[];
   /**
+   * AND this field rather than OR-ing it with the other filled-in fields.
+   *
+   * Most scope fields are ALTERNATIVE HANDLES for the same thing -- a CAP ID, a
+   * document id, a file name and a file key are four ways of naming one
+   * document, and no single log line carries all four. AND-ing them means one
+   * value that happens not to be logged zeroes the entire result, which is the
+   * failure a document search hit: the file name was never recorded for that
+   * upload, so combining it with anything returned nothing.
+   *
+   * So alternatives are OR-ed, giving the union of what each one finds, and
+   * genuinely narrowing attributes set this flag: a record TYPE or a map service
+   * is not another name for the record, it is a property to filter on.
+   */
+  filter?: boolean;
+  /**
    * Keep `av.indexer` in the search while this field has a value.
    *
    * The indexer is excluded by default under any scope, which is right for most
@@ -693,6 +708,9 @@ const CATEGORIES: ScopeCategory[] = [
       },
       {
         id: 'mapService',
+        // A narrowing attribute, not another name for the thing -- see
+        // ScopeField.filter.
+        filter: true,
         label: 'Map service',
         placeholder: 'AGENCYGIS',
         hint: 'The agency GIS map service name, from the GIS configuration.',
@@ -850,6 +868,9 @@ const CATEGORIES: ScopeCategory[] = [
       capId,
       {
         id: 'recordType',
+        // A narrowing attribute, not another name for the thing -- see
+        // ScopeField.filter.
+        filter: true,
         label: 'Record type',
         placeholder: 'ABC_GENERAL',
         hint: 'The record type as configured (module and type joined by an underscore), not the label shown on screen.',
@@ -921,6 +942,9 @@ const CATEGORIES: ScopeCategory[] = [
       },
       {
         id: 'batchScheduledDate',
+        // A narrowing attribute, not another name for the thing -- see
+        // ScopeField.filter.
+        filter: true,
         label: 'Scheduled date',
         placeholder: '2026-01-31',
         hint: 'Format it as the job dump does, YYYY-MM-DD. Matched against the StartDate on the job line.',

@@ -225,7 +225,27 @@ export class QueryBuilderV2Service implements QueryEngine {
     return { query, warnings, errors };
   }
 
-  /** One clause per filled-in scoped field, plus any warnings they raise. */
+  /**
+   * Clauses for the filled-in scope fields.
+   *
+   * ---------------------------------------------------------------------------
+   * ALTERNATIVES ARE OR-ED, FILTERS ARE AND-ED
+   * ---------------------------------------------------------------------------
+   * Most of these fields are alternative handles for one thing. A CAP ID, a
+   * document id, a file name and a file key are four ways of naming the same
+   * document, and no single log line carries all four -- so AND-ing them means
+   * one value that happens not to be logged zeroes the whole result.
+   *
+   * That is not hypothetical. A document search combining a file name with a
+   * file key returned nothing, because the file name was never recorded for that
+   * upload: `*Doc1.pdf*` is zero estate-wide. AND-ing made an unlogged value
+   * destroy two good ones.
+   *
+   * So they are OR-ed, which gives the union of what each finds and cannot be
+   * zeroed by one bad value. Fields that are genuinely narrowing attributes
+   * rather than names -- a record type, a map service, a scheduled date -- set
+   * `filter: true` and are still AND-ed.
+   */
   private buildScopeClauses(
     input: QueryInput,
     env: EnvironmentDef,
@@ -241,7 +261,10 @@ export class QueryBuilderV2Service implements QueryEngine {
       env,
     };
 
-    const clauses: string[] = [];
+    const alternatives: string[] = [];
+    const filters: string[] = [];
+    const altLabels: string[] = [];
+
     for (const field of fieldsFor(input.scope?.category, input.scope?.option)) {
       const raw = values[field.id];
       if (!raw || !raw.trim()) continue;
@@ -250,9 +273,29 @@ export class QueryBuilderV2Service implements QueryEngine {
       if (warning) warnings.push(warning);
 
       const clause = field.clause(raw, ctx);
-      if (clause) clauses.push(clause);
+      if (!clause) continue;
+
+      if (field.filter) {
+        filters.push(clause);
+      } else {
+        alternatives.push(clause);
+        altLabels.push(field.label);
+      }
     }
-    return clauses;
+
+    const out: string[] = [];
+    if (alternatives.length === 1) {
+      out.push(alternatives[0]);
+    } else if (alternatives.length > 1) {
+      out.push(`(${alternatives.join(' OR ')})`);
+      // Said out loud, because a union is not what "two boxes filled in" looks
+      // like it should do, and a silent union would be its own trap.
+      warnings.push(
+        `${altLabels.join(' and ')} are treated as alternatives, so you get lines matching ANY of them rather than only lines matching all. That is deliberate: they are different names for the same thing and no single log line carries them all, so requiring all of them would return nothing.`
+      );
+    }
+    out.push(...filters);
+    return out;
   }
 
   // ------------------------------------------------------------------ biz tier
