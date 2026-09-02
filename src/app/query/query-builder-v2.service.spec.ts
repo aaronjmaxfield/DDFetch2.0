@@ -1172,6 +1172,27 @@ describe('QueryBuilderV2Service', () => {
             expect(query).toContain("*document*");
         });
 
+        it("anchors the emse.log arm so it cannot pull other agencies", () => {
+            /*
+             * Reported as "the biz logic is pulling all agencies", and it was.
+             * `(filename:emse.log AND *{AGENCY}*)` collided with an Azure
+             * Storage header that every event-log upload line carries --
+             * `x-ms-content-crc64` -- and free text is case-insensitive, so
+             * *CRC* matched crc64. On a 30-minute CRC-TEST search, 891 of 992
+             * lines came from this arm and were MISSOULA, COSA, SACRAMENTO and
+             * PRESCOTTVLY.
+             *
+             * Not CRC-specific: *ID* matched 46,962 lines, *ES* 30,204, *DC*
+             * 3,193. Any short agency code leaks.
+             */
+            const { query, warnings } = v2.build(input({ includeEmse: true }));
+            expect(query).toContain("filename:emse.log AND *agcy-prod*");
+            // The bare agency wildcard must never come back.
+            expect(query).not.toContain("filename:emse.log AND *AGCY*");
+            // And the partial coverage is announced, not hidden.
+            expect(warnings.some((w) => w.includes("carry no agency field"))).toBe(true);
+        });
+
         it("has no chatterException that does not match a real pattern", () => {
             // A typo in chatterExceptions silently does nothing, which would
             // look like the fix working.

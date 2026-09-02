@@ -375,20 +375,54 @@ export class QueryBuilderV2Service implements QueryEngine {
      * search returned index-builder lines and nothing else. Oregon STG is 46%
      * emse. Those rows opt in via `emseIsPrimaryBizLog`.
      *
-     * Free text rather than the "Agency ID:" phrase on purpose -- the phrase form
-     * drops the EMSE exception and blob-upload lines, which are the ones worth
-     * having, and on Oregon it returns 92x less. Free text is case insensitive
-     * here, so one casing suffices.
-     */
-    /*
-     * A category can force the arm on. EMSE and Batch both do, because their
-     * primary evidence is in that file -- and it is nearly free: measured on four
-     * agencies across two environments, the arm adds +1.0% to +40.0% lines and
-     * exactly ZERO errors every time.
+     * ---------------------------------------------------------------------
+     * EMSE.LOG CANNOT BE SCOPED BY AGENCY. Corrected 2026-09-02.
+     * ---------------------------------------------------------------------
+     * This arm used to be `(filename:emse.log AND *{AGENCY}*)`, and for a short
+     * agency code it returned almost entirely OTHER agencies' lines. Reported
+     * as "the biz logic is pulling all agencies", and it was: on a 30-minute
+     * CRC-TEST search, 891 of 992 lines came from this arm and the samples were
+     * MISSOULA, COSA, SACRAMENTO and PRESCOTTVLY.
+     *
+     * The cause is a substring collision with an Azure Storage response header
+     * that every event-log upload line carries:
+     *
+     *     x-ms-content-crc64:pcF0LOEplLE=
+     *
+     * Free text is case-insensitive, so `*CRC*` matches `crc64`. It is not
+     * specific to CRC -- measured on the same window, `*ID*` matched 46,962
+     * lines (`x-ms-request-id`), `*ES*` 30,204, `*DC*` 3,193, `*MD*` 2,114. Any
+     * short agency code leaks catastrophically.
+     *
+     * Every alternative was measured and none works:
+     *   - No facet exists. Grouping emse.log by @SERV_PROV_CODE, @JNDI,
+     *     @agencycode and @Agency all return ZERO buckets, and a raw event has
+     *     those attributes empty. Free text is the only route.
+     *   - Punctuation is ignored, so `*CRC.*` is identical to `*CRC*` (891 both).
+     *   - The exact-token form under-matches by 800x: `*OSCEOLA*` is 9,640 and
+     *     `"OSCEOLA"` is 12. And `"ID"` still leaks 1,048.
+     *   - A phrase anchor on the line's own wording returns nothing:
+     *     `"by OSCEOLA"` is 0 against 9,640.
+     *
+     * So the clause is now anchored on the one shape that is both present and
+     * unambiguous -- the `{agency}-{jndi}` token in the event-log blob names,
+     * verified pure (12 of 12 sampled lines for one agency, 0 belonging to
+     * another). That is a minority of emse.log, so the loss is announced rather
+     * than hidden: script-content lines identify their agency only as
+     * `{AGENCY}.{USER}` inside free text, which cannot be distinguished from a
+     * substring collision, and the honest way to reach them is a script name or
+     * a trace ID.
+     *
+     * This also corrects the "+1.0% to +40.0% lines and zero errors" figure
+     * recorded for `forceEmse`: much of what that arm was adding was other
+     * agencies' lines.
      */
     const forceEmse = findCategory(input.scope?.category)?.forceEmse === true;
     if (input.includeEmse || env.emseIsPrimaryBizLog || forceEmse) {
-      identity.push(`(filename:emse.log AND *${upper}*)`);
+      identity.push(`(filename:emse.log AND *${lower}-${env.jndi}*)`);
+      warnings.push(
+        'Script engine logs (emse.log) carry no agency field of any kind, so they cannot be filtered by agency. Only the lines that name this agency and environment are included -- chiefly the event-log uploads. To reach the script content itself, search filename:emse.log with your script name or trace ID directly in Datadog.'
+      );
     } else {
       warnings.push(
         'EMSE script logs are excluded: they carry neither @SERV_PROV_CODE nor @JNDI, so they need a free-text arm, and they are high-volume and info-only. Enable "Include EMSE" if you are chasing script behaviour.'
