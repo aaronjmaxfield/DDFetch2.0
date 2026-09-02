@@ -113,6 +113,9 @@ export class AppComponent {
       this.includeIndexer = false;
       this.includeEmse = false;
       this.includeIis = false;
+      // Especially this one. A hidden raw mode would silently discard the scope
+      // filters the collapsed form still appears to be applying.
+      this.rawMode = false;
       this.previews = [];
     }
   }
@@ -243,6 +246,7 @@ export class AppComponent {
       includeIndexer: this.includeIndexer,
       includeEmse: this.includeEmse,
       includeIis: this.includeIis,
+      rawMode: this.rawMode,
       // Omitted entirely when nothing is scoped, so the engine takes its
       // original path and the fast search is byte-identical to before.
       scope: this.scopeCategory
@@ -284,6 +288,21 @@ export class AppComponent {
     if (which === 'emse') this.includeEmse = on;
     if (which === 'iis') this.includeIis = on;
     // The previewed query no longer matches the form.
+    this.previews = [];
+  }
+
+  /*
+   * Separate from the four above, and separately placed in the template, because
+   * it is a different kind of thing: those add one population each, this one
+   * turns off every filter at once. Grouping it with them would make it look
+   * like a fifth checkbox of equal weight.
+   *
+   * See QueryInput.rawMode for exactly what it drops.
+   */
+  rawMode = false;
+
+  onRawModeToggle(on: boolean) {
+    this.rawMode = on;
     this.previews = [];
   }
 

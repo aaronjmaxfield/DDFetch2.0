@@ -516,6 +516,27 @@ label {
   }
 }
 
+/* Raw mode is a different kind of control from the four toggles above it -- it
+   turns filtering off wholesale rather than adding one population -- so it gets
+   a rule above it. A hairline is enough: it needs to read as separate without
+   becoming a second visual section, which would cost height in the state that
+   has least to spare (a scope plus Advanced, both open). */
+.raw-mode-row {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--brand-line);
+
+  label {
+    font-weight: 600;
+  }
+
+  .section-note {
+    /* Clears the checkbox rather than sitting under it, so the note reads as
+       belonging to the label. */
+    margin-left: 22px;
+  }
+}
+
 /* Instructions panel: per-scope help sits above the general text, separated
    rather than merged, because it is the part that changes. */
 .scope-help {

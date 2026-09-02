@@ -548,6 +548,43 @@
                 </div>
               </div>
             </div>
+
+            <!--
+              Deliberately NOT a fifth "Also include" checkbox. Those each add
+              one population; this turns off every filter at once, so it gets its
+              own row and its own label rather than sitting among them looking
+              like a peer.
+
+              Last in the disclosure because it is the escape hatch: the thing
+              you reach for when the scoped search did not show what you
+              expected, which is after everything above it has been tried.
+            -->
+            <div class="row form-row form-row-tight raw-mode-row">
+              <div class="col-md-12">
+                <div class="check">
+                  <input
+                    type="checkbox"
+                    id="rawModeCheckbox"
+                    [checked]="rawMode"
+                    (change)="onRawModeToggle($any($event.target).checked)"
+                  />
+                  <label for="rawModeCheckbox">Raw logs -- turn off all filtering</label>
+                  <span
+                    class="info"
+                    tabindex="0"
+                    role="note"
+                    aria-label="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Your scope still decides which services to look at. Anything typed into the scope fields is ignored. Use it when a scoped search came back thinner than you expected."
+                    data-tip="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Your scope still decides which services to look at. Anything typed into the scope fields is ignored. Use it when a scoped search came back thinner than you expected."
+                    >i</span
+                  >
+                </div>
+                <p class="section-note">
+                  Every line for what you selected. The Scope still chooses which services to search
+                  -- <code>Payment &gt; Forte</code> keeps the payment adapter in -- but none of its
+                  filters are applied and its fields are ignored. Expect a lot of results.
+                </p>
+              </div>
+            </div>
           </div>
         }
 

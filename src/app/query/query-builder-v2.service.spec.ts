@@ -31,6 +31,103 @@ describe('QueryBuilderV2Service', () => {
         };
     }
 
+    // -------------------------------------------------------------- raw mode
+
+    describe('raw mode', () => {
+        /*
+         * The user's own example: CRC-TEST with Civic Platform, Citizen Access
+         * and Payment > Forte should return all biz, all ACA and all PAS logs.
+         * So the assertions come in two halves -- every filter gone, every
+         * identity kept.
+         */
+        function rawForte(overrides: Partial<QueryInput> = {}) {
+            return v2.build(
+                input({
+                    applications: ['Civic Platform', 'Citizen Access'],
+                    scope: {
+                        category: 'payment',
+                        option: 'forte',
+                        fields: { capId: '25CAP-00000-00ABC' },
+                    },
+                    rawMode: true,
+                    ...overrides,
+                })
+            );
+        }
+
+        it('drops every narrowing clause', () => {
+            const { query } = rawForte();
+
+            // Scope field clause, and the field value itself.
+            expect(query).not.toContain('25CAP-00000-00ABC');
+            // Category markers.
+            expect(query).not.toContain('*transaction-id*');
+            expect(query).not.toContain('*F4PAYMENT*');
+            // Provider filter.
+            expect(query).not.toContain('@PROVIDER');
+            // Routine chatter and chronic exclusions.
+            expect(query).not.toContain('-"Request URL:https"');
+            expect(query).not.toContain('-"report takes more than"');
+            // Indexer exclusion.
+            expect(query).not.toContain('-service:av.indexer');
+        });
+
+        it('keeps the tiers and services the selection identifies', () => {
+            const { query } = rawForte();
+
+            // Biz.
+            expect(query).toContain('@JNDI:*agcy-prod*');
+            // ACA.
+            expect(query).toContain('filename:agcy-prod*');
+            /*
+             * PAS. The scope still decides WHERE to look -- this is the
+             * distinction the whole feature rests on. Turning off the filters
+             * must not turn off the service the option brought with it.
+             */
+            expect(query).toContain('service:payment-adapter-service');
+        });
+
+        it('keeps what the user typed, because that is their filter and not ours', () => {
+            const { query } = rawForte({ additionalParams: 'NullPointerException' });
+            expect(query).toContain('*NullPointerException*');
+        });
+
+        it('overrides an explicit request to filter chatter', () => {
+            // Otherwise the toggle would promise something it did not deliver.
+            const { query } = rawForte({ hideRoutineChatter: true });
+            expect(query).not.toContain('-"Request URL:https"');
+        });
+
+        it('says what it ignored and what it did not cover', () => {
+            const { warnings } = rawForte();
+            const raw = warnings.find((w) => w.startsWith('Raw mode'));
+
+            expect(raw).toBeDefined();
+            // The scope fields were silently ignored otherwise.
+            expect(raw).toContain('ignored');
+            /*
+             * The trap this exists to prevent: concluding "there are no EMSE
+             * lines" from a raw search. emse.log needs an arm of its own to be
+             * reachable at all, so raw mode does not include it.
+             */
+            expect(raw).toContain('Script engine logs');
+        });
+
+        it('does not add sources -- emse stays on its own toggle', () => {
+            expect(rawForte().query).not.toContain('emse.log');
+            expect(rawForte({ includeEmse: true }).query).toContain('emse.log');
+        });
+
+        it('is off unless asked for, so the scoped path is untouched', () => {
+            const scoped = v2.build(
+                input({ scope: { category: 'payment', option: 'forte' } })
+            );
+            expect(scoped.query).toContain('*transaction-id*');
+            expect(scoped.query).toContain('@PROVIDER');
+            expect(scoped.warnings.some((w) => w.startsWith('Raw mode'))).toBe(false);
+        });
+    });
+
     // ------------------------------------------------- A1: service scoping
 
     it('scopes the biz tier to the chosen category', () => {

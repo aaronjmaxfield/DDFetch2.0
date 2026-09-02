@@ -380,6 +380,29 @@ describe('AppComponent (characterization)', () => {
         expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it('passes raw mode through and forgets it when Advanced is closed', () => {
+        /*
+         * The reset matters more than the wiring. A raw mode left on behind a
+         * collapsed disclosure would keep discarding the scope filters the
+         * visible form still appears to be applying -- the same reasoning as the
+         * other Advanced fields, and worse here because it is silent.
+         */
+        component.engineMode = 'v2';
+        setText('inputServProvCode', 'TESTAGCY');
+        setHost('US');
+        setEnvironment('PROD');
+        setValidWindow();
+        selectScope('payment', 'forte');
+
+        el<HTMLInputElement>('rawModeCheckbox').click();
+        expect(component.rawMode).toBe(true);
+        submit();
+        expect(openedQuery()).not.toContain('@PROVIDER');
+
+        component.toggleAdvanced();
+        expect(component.rawMode).toBe(false);
+    });
+
     it('names every missing required field in one alert', () => {
         check('civicPlatformCheckbox');
         setValidWindow();

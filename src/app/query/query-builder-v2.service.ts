@@ -119,16 +119,33 @@ export class QueryBuilderV2Service implements QueryEngine {
     let query = branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];
 
     /*
+     * -------------------------------------------------------------------------
+     * RAW MODE
+     * -------------------------------------------------------------------------
+     * Every narrowing clause below is skipped. See QueryInput.rawMode for what
+     * that includes and what it deliberately leaves alone.
+     *
+     * Worth having because every one of those clauses is a judgement call made
+     * from a measurement, and a measurement generalises until it does not. The
+     * document investigation is the standing example: the marker set was right
+     * about volume and wrong about the record ID, and the only way to see that
+     * was to look at the unfiltered stream.
+     */
+    const raw = input.rawMode === true;
+
+    /*
      * Scoped clauses narrow the whole query rather than joining the OR, because
      * an identifier is a statement about which event you want, not about which
      * tier it came from. A CAP ID should cut across biz, ACA and the payment
      * adapter at once.
      */
-    for (const clause of this.buildScopeClauses(input, env, agency, warnings)) {
-      query = `${query} AND ${clause}`;
+    if (!raw) {
+      for (const clause of this.buildScopeClauses(input, env, agency, warnings)) {
+        query = `${query} AND ${clause}`;
+      }
     }
 
-    if (scopeOption?.providerUrn) {
+    if (!raw && scopeOption?.providerUrn) {
       /*
        * `OR -@PROVIDER:*` is load-bearing. Only ~50% of payment-adapter lines
        * carry the attribute -- 11 of 20 on one measured transaction, 16 of 27 on
@@ -157,7 +174,7 @@ export class QueryBuilderV2Service implements QueryEngine {
      * cannot be filtered by an adapter clause and must be scoped by the
      * category's markers instead.
      */
-    if (scopeOption?.extraClause) {
+    if (!raw && scopeOption?.extraClause) {
       query = `${query} AND ((${scopeOption.extraClause}) OR -service:aca)`;
     }
 
@@ -191,9 +208,11 @@ export class QueryBuilderV2Service implements QueryEngine {
     const isScoped = !!scopedCategory;
 
     // Unscoped defaults to no filtering, but an explicit `true` still forces it.
-    const filterChatter = isScoped
-      ? input.hideRoutineChatter !== false
-      : input.hideRoutineChatter === true;
+    // Raw mode outranks both, including an explicit `true` -- the whole promise
+    // of the toggle is that nothing was removed.
+    const filterChatter =
+      !raw &&
+      (isScoped ? input.hideRoutineChatter !== false : input.hideRoutineChatter === true);
 
     if (filterChatter) {
       // The selected scope may depend on a chatter pattern as evidence -- a
@@ -215,7 +234,7 @@ export class QueryBuilderV2Service implements QueryEngine {
      * it buries the payment failures it sits next to. Also scope-gated: an
      * unscoped search is meant to be complete.
      */
-    if (isScoped && input.showChronic !== true) {
+    if (!raw && isScoped && input.showChronic !== true) {
       /*
        * A category whose whole subject IS the chronic pattern must keep it. The
        * reporting scope is the case: with the markers in place but the pattern
@@ -246,7 +265,25 @@ export class QueryBuilderV2Service implements QueryEngine {
       }
     }
 
-    if (!isScoped) {
+    if (raw) {
+      /*
+       * Deliberately specific about the two things it did NOT do, because "raw"
+       * invites the assumption that it did everything. Someone who concludes
+       * "there are no EMSE lines" from a raw search would be wrong, and that is
+       * exactly the kind of wrong conclusion the rest of this engine works to
+       * prevent.
+       */
+      const parts = ['Raw mode: nothing has been filtered out.'];
+      if (isScoped) {
+        parts.push(
+          `Your ${scopedCategory?.label} scope still decides WHERE to look, so the services it adds are included -- but none of its filters are applied, and any identifier you typed into its fields was ignored.`
+        );
+      }
+      parts.push(
+        'Script engine logs and ACA page requests are separate sources rather than filters, so they are still controlled by their own tick-boxes above and are NOT included unless you ticked them.'
+      );
+      warnings.push(parts.join(' '));
+    } else if (!isScoped) {
       warnings.push(
         'Nothing has been filtered out. This is everything logged for this agency and environment, which is deliberate -- narrow it down in Datadog and you can be certain nothing was removed before you looked. Once you know what you are investigating, pick a Scope to cut the routine noise.'
       );
@@ -648,7 +685,14 @@ export class QueryBuilderV2Service implements QueryEngine {
     // Biz-tier only: the indexer is agency-tagged, so it arrives through the
     // @JNDI arms. With those gone it cannot match, and excluding a service that
     // is already unreachable would just add a term to the query for show.
-    if (wantsBiz && category && !input.includeIndexer && !fieldWantsIndexer && !category.keepIndexer) {
+    if (
+      wantsBiz &&
+      input.rawMode !== true &&
+      category &&
+      !input.includeIndexer &&
+      !fieldWantsIndexer &&
+      !category.keepIndexer
+    ) {
       scopeParts.push('-service:av.indexer');
     }
 
@@ -678,7 +722,12 @@ export class QueryBuilderV2Service implements QueryEngine {
      * carries no payment word. With no biz tier present there is nothing left
      * for them to narrow, so they could only do that damage.
      */
-    if (wantsBiz && category?.bizMarkers?.length && input.scopeBizTier !== false) {
+    if (
+      wantsBiz &&
+      input.rawMode !== true &&
+      category?.bizMarkers?.length &&
+      input.scopeBizTier !== false
+    ) {
       /*
        * Fields that currently hold a value can add markers of their own. That is
        * how the Construct trace ID reaches the biz-tier response line: 21.8M

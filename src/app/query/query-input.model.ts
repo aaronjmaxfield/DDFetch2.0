@@ -92,6 +92,38 @@ export interface QueryInput {
    * signal as much as the volume.
    */
   scopeBizTier?: boolean;
+  /**
+   * Drop every clause this engine adds to narrow a search, and return the raw
+   * stream for whatever tiers and services are selected.
+   *
+   * ---------------------------------------------------------------------------
+   * WHAT IT REMOVES, AND WHAT IT DELIBERATELY DOES NOT
+   * ---------------------------------------------------------------------------
+   * Removes all seven narrowing mechanisms: the scope field clauses, the
+   * `@PROVIDER` filter, an option's `extraClause`, the category's `bizMarkers`,
+   * the routine-chatter exclusion, the chronic-pattern exclusion, and the
+   * indexer exclusion.
+   *
+   * KEEPS the identity of what you selected. A scope option still contributes
+   * its service, so "Civic Platform + Citizen Access + Payment > Forte" in raw
+   * mode is every biz line, every ACA line and every payment-adapter-service
+   * line for the agency and environment -- Forte still decides that PAS is in
+   * the query, it just stops filtering it.
+   *
+   * KEEPS anything the user typed. A trace ID or an additional parameter is the
+   * user's own search term, not this engine's filtering.
+   *
+   * DOES NOT add sources. emse.log and the ACA page requests each need an arm of
+   * their own to be reachable at all, so they stay on their own toggles rather
+   * than being switched on here. One rule -- raw removes filters, it does not
+   * add populations -- is more predictable than a mode that quietly does both,
+   * and the warning names them so nobody assumes "raw" covered it.
+   *
+   * The reason to want it: every filter here is a judgement call made from
+   * measurements, and a judgement call can be wrong for the ticket in front of
+   * you. This is the escape hatch that does not require trusting any of them.
+   */
+  rawMode?: boolean;
 }
 
 export interface QueryResult {
