@@ -937,7 +937,12 @@ export class QueryBuilderV2Service implements QueryEngine {
       unscopedByEnv.push(target.values.join(', ').replace(/"/g, ''));
     }
 
-    if (target.agencyScope === 'attributes') {
+    if (target.agencyClause) {
+      // The target's agency data is not uniform across its own environments, so
+      // it supplies the whole clause rather than choosing between the shapes
+      // below. See ServiceTarget.agencyClause.
+      clauses.push(target.agencyClause(agency.toUpperCase(), agency.toLowerCase()));
+    } else if (target.agencyScope === 'attributes') {
       clauses.push(this.agencyScopeForServices(agency, target.agencyFacets));
     } else if (target.agencyScope === 'freetext') {
       // The agency is inside an unparsed message body, so there is no facet to

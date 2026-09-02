@@ -378,6 +378,16 @@ export interface ServiceTarget {
    */
   agencyFacets?: string[];
   /**
+   * Replaces the generated agency clause outright, for a target whose agency
+   * data is not uniform across its own environments.
+   *
+   * Used by exactly one target and for a measured reason -- see the SecurePay
+   * PCI adapter, where the facet exists on the engineering cluster and does not
+   * exist at all on prod-pci or nonprod-pci, so a single clause of either shape
+   * is wrong somewhere.
+   */
+  agencyClause?: (agencyUpper: string, agencyLower: string) => string;
+  /**
    * Overrides the default `*{AGENCY}*` term used by `agencyScope: 'freetext'`.
    *
    * The bare wildcard is too blunt on some targets -- it matches hex fragments
@@ -531,26 +541,82 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         envClause: pciEnvClause,
         agencyScope: 'attributes',
         agencyFacets: ['@SERV_PROV_CODE'],
-        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci rather than prod-pci, so non-production searches include it. A PROD search covers prod-pci only -- 1,171 lines over 30 days against 283,393 -- and will look sparse by comparison; that is accurate, not a missing filter. Unlike the standard payment adapter, this service does ship debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results. Note that SecurePay\'s Citizen Access handling is not currently working correctly and tags its lines with the epayments3 provider id rather than payrix, so a SecurePay result can look like a different adapter entirely -- the provider filter allows for that.',
-      },
-      {
         /*
-         * The Payrix stub gateway. Added 2026-09-02: it was missing entirely,
-         * and it is where a stubbed gateway failure lands in non-production --
-         * 95 lines over 7 days of which 12 are errors, which is a 13% error
-         * rate rather than background noise.
+         * -------------------------------------------------------------------
+         * THE AGENCY FACET DOES NOT EXIST OUTSIDE THE ENGINEERING CLUSTER.
+         * Added 2026-09-02, and it corrects the note below rather than
+         * refining it.
+         * -------------------------------------------------------------------
+         * `agencyFacets: ['@SERV_PROV_CODE']` is right for eng-arch-pci and
+         * catastrophic everywhere else. Measured over 30 days:
          *
-         * No facets at all: @SERV_PROV_CODE, @PROVIDER, @PLATFORM and @MODULE
-         * every one returns zero buckets, and the volume is far too low to
-         * justify a free-text agency guess that could exclude the errors. So it
-         * comes back for the whole environment, like ADS.
+         *   env:prod-pci     @SERV_PROV_CODE  ZERO buckets. Also zero for
+         *                    @PROVIDER, @PLATFORM and @MODULE.
+         *   env:nonprod-pci  same -- zero of everything.
+         *
+         *   service:app-pci-payment-adapter AND env:prod-pci        = 1,150
+         *   ...AND a @SERV_PROV_CODE agency filter                  =     0
+         *   ...AND env:nonprod-pci AND @SERV_PROV_CODE:*            =     0
+         *
+         * So a PROD SecurePay search returned exactly nothing, always, and the
+         * note used to explain that away as "sparse ... that is accurate, not a
+         * missing filter". It was a missing filter, and it was hiding the
+         * majority of the service's failures. Errors by env over 30 days:
+         *
+         *   prod-pci      621
+         *   nonprod-pci   611
+         *   eng-arch-pci  436
+         *
+         * 1,232 of 1,668 errors -- 74% -- were unreachable at any setting.
+         *
+         * The clause below is match-or-absent, EXCEPT on the engineering
+         * cluster where the facet is reliable. That asymmetry is the whole
+         * point:
+         *   - prod-pci and nonprod-pci are 2,048 lines over 30 days in total,
+         *     so returning all of them costs almost nothing and recovers 1,232
+         *     errors.
+         *   - eng-arch-pci is the opposite shape: 204,306 lines there have no
+         *     @SERV_PROV_CODE, against 83,213 that do. Accepting absence
+         *     wholesale would add 204k lines of other agencies' traffic to
+         *     every search.
+         *
+         * The `status:(error OR warn)` escape then buys back the only part of
+         * that 204k worth having: 44 errors and 626 warns on facet-less
+         * eng-arch-pci lines, at a cost of 670 lines rather than 204,306.
          */
-        field: 'service',
-        values: ['app-pci-payrix-stub-service'],
-        envClause: pciEnvClause,
-        agencyScope: 'none',
-        note: 'The Payrix stub gateway used in non-production carries no agency field of any kind, so its lines are returned for the whole environment rather than just this agency. It is low volume (95 lines a week) and 13% of it is errors, so it is worth reading rather than skipping.',
+        agencyClause: (upper, lower) =>
+          `(@SERV_PROV_CODE:*${lower}* OR @SERV_PROV_CODE:*${upper}*` +
+          ` OR (-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn))))`,
+        note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci, and only there does the log carry an agency field -- the production and non-production PCI clusters record no agency at all, so their lines are returned for the whole cluster rather than just this agency. That is deliberate: those two clusters hold 1,232 of the service\'s 1,668 errors, and requiring an agency field there returned nothing. Unlike the standard payment adapter, this service ships debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results. Note also that SecurePay\'s Citizen Access handling is not currently working correctly and tags its lines with the epayments3 provider id rather than payrix, so a SecurePay result can look like a different adapter entirely -- the provider filter allows for that.',
       },
+      /*
+       * -----------------------------------------------------------------------
+       * app-pci-payrix-stub-service IS DELIBERATELY NOT A TARGET.
+       * Added and then removed the same day, 2026-09-02. Recording the reversal
+       * because the mistake was in the reasoning, not the measurement.
+       * -----------------------------------------------------------------------
+       * It was added on the strength of "95 lines over 7 days of which 12 are
+       * errors -- a 13% error rate rather than background noise". The error rate
+       * was real and the conclusion was wrong: those are not errors.
+       *
+       * Every one of them is container startup written to stderr, which Datadog
+       * classes as `error`, repeating on each restart:
+       *
+       *   [otel.javaagent ...] INFO io.opentelemetry...VersionLogger - version: 2.10.0
+       *   OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot
+       *     loader classes because bootstrap classpath has been appended
+       *
+       * And the info lines are the Spring Boot ASCII-art banner.
+       *
+       * The service logs no payment content whatsoever. Measured over 30 days
+       * against its 177 total lines: `*payment*` 0, `*transaction*` 0, `*txn*`
+       * 0, `*callback*` 0, `*checkout*` 0, `*agency*` 0. What it does match is
+       * `*Spring*` 11, `*otel*` 11 and `*JDK*` 11.
+       *
+       * A stubbed gateway failure would therefore not appear here anyway. The
+       * lesson for the next target: an error RATE is not evidence of signal
+       * until the errors have been read.
+       */
       {
         // The most informative target for SecurePay, and the reason this entry
         // is worth keeping: it logs both reads and writes of the adapter

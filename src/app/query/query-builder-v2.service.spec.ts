@@ -759,7 +759,7 @@ describe('QueryBuilderV2Service', () => {
          * because facet values are case sensitive (SECUREPAYAUTO 38,160,
          * securepayauto 35,363).
          */
-        expect(query).toContain('(@SERV_PROV_CODE:*agcy* OR @SERV_PROV_CODE:*AGCY*)');
+        expect(query).toContain('@SERV_PROV_CODE:*agcy* OR @SERV_PROV_CODE:*AGCY*');
         expect(query).not.toContain('@agencycode');
         expect(query).not.toContain('@usr.agency');
         // The PCI cluster caveat must surface to the user.
@@ -799,14 +799,38 @@ describe('QueryBuilderV2Service', () => {
         expect(warnings.some((w) => w.includes('more than one provider id'))).toBe(false);
     });
 
-    it('A13: includes the Payrix stub gateway, unscoped by agency', () => {
-        // Was missing entirely. 95 lines over 7 days of which 12 are errors, and
-        // it carries no facet of any kind -- so it comes back for the whole
-        // environment rather than being guessed at by free text and lost.
-        const { query, warnings } = v2.build(input({ additionalServices: ['SecurePay'] }));
+    it('A13: excludes the Payrix stub service, which logs no payment content', () => {
+        /*
+         * Added and removed the same day. Its 13% "error rate" is container
+         * startup on stderr -- an otel javaagent version line and an OpenJDK
+         * class-sharing warning, repeating per restart -- and the info lines are
+         * the Spring Boot banner. Over 30 days and 177 lines: `*payment*` 0,
+         * `*transaction*` 0, `*txn*` 0, `*callback*` 0, `*checkout*` 0.
+         */
+        const { query } = v2.build(input({ additionalServices: ['SecurePay'] }));
+        expect(query).not.toContain('app-pci-payrix-stub-service');
+    });
 
-        expect(query).toContain('service:app-pci-payrix-stub-service AND env:prod-pci');
-        expect(warnings.some((w) => w.includes('stub gateway'))).toBe(true);
+    it('A13: returns the PCI clusters that carry no agency field at all', () => {
+        /*
+         * The agency facet exists ONLY on eng-arch-pci. prod-pci and
+         * nonprod-pci have zero buckets for @SERV_PROV_CODE, @PROVIDER,
+         * @PLATFORM and @MODULE alike, so requiring an agency there returned
+         * nothing -- and those two clusters hold 1,232 of the service's 1,668
+         * errors over 30 days.
+         *
+         * Match-or-absent, except on the engineering cluster where absence
+         * means 204,306 other lines rather than 2,048. The error/warn escape
+         * buys back the 44 errors and 626 warns on facet-less eng-arch-pci
+         * lines for 670 lines instead of 204,306.
+         */
+        const { query } = v2.build(input({ additionalServices: ['SecurePay'] }));
+
+        expect(query).toContain(
+            '(-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn)))'
+        );
+        // The agency is still required where it exists.
+        expect(query).toContain('@SERV_PROV_CODE:*agcy*');
     });
 
     it('A13: reaches the ConfigStore agency through the request path as well as free text', () => {
