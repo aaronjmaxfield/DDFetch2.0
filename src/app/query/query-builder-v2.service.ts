@@ -460,6 +460,60 @@ export class QueryBuilderV2Service implements QueryEngine {
        */
       identity.push(`(@SERV_PROV_CODE:*${upper}* AND -@JNDI:*)`);
       identity.push(`(@SERV_PROV_CODE:*${lower}* AND -@JNDI:*)`);
+
+      /*
+       * -----------------------------------------------------------------------
+       * BIZ LINES THAT NAME THE AGENCY BUT CARRY NO AGENCY FACET.
+       * Added 2026-09-02 after a real SANTAANA failure whose ROOT CAUSE was
+       * unreachable at every setting.
+       * -----------------------------------------------------------------------
+       * The symptom was `AccelaAdapter webhook not recieved`. The cause was an
+       * EMSE script: `**ERROR** "capAltId" is not defined. In PRA:*{/}*{/}*{/}*
+       * Line 3`, inside a PaymentReceiveAfter dump. Every arm above missed it,
+       * because that line carries NEITHER @JNDI NOR @SERV_PROV_CODE -- measured
+       * on the 5-minute window, `@JNDI:*santaana-nonprod1*` is 0 against it and
+       * `@SERV_PROV_CODE:*SANTAANA*` is 0, while 7 of the 12 estate-wide
+       * `PaymentReceiveAfter Script Error` lines in that window had no agency
+       * facet of any kind.
+       *
+       * It DOES name the agency in its body, as a CAP ID: `record ID:
+       * SANTAANA-PWK26-00000`. So a free-text arm reaches it, and the existing
+       * free-text arm could not: that one is `service:aca AND *{AGENCY}*`, and
+       * this is a biz line.
+       *
+       * ANCHORED ON `{AGENCY}-`, which is the whole reason this is affordable.
+       * The bare `*{AGENCY}*` form repeats the emse.log mistake from earlier the
+       * same day -- a short code matches incidental text. Measured over 24h with
+       * the payment markers applied:
+       *
+       *              bare *AGENCY*   anchored *AGENCY-*
+       *   SANTAANA              13                   13
+       *   LEECO              7,735                7,727
+       *   CRC               12,032                    9
+       *   COSA              10,538               10,340
+       *
+       * CRC drops by 99.93% and SANTAANA loses nothing, because a CAP ID always
+       * has the hyphen and `x-ms-content-crc64` does not.
+       *
+       * Gated on BOTH facets being absent, so it is disjoint from the arms above
+       * by construction and cannot double-count. Cost unscoped is real -- 397
+       * lines/24h on SANTAANA, 182,016 on LEECO -- and is accepted on the same
+       * basis as the rest of the unscoped promise: 182k against LEECO's existing
+       * ~3M is 6%, and the alternative is a root cause that cannot be found.
+       *
+       * KNOWN RESIDUAL: a code that is a substring of a longer agency's code
+       * still leaks, since free text cannot anchor at a token start. Measured on
+       * the worst case to hand, `*SEATTLE-*` returns 17,654 lines of which 180
+       * also match `*PORTSEATTLE-*` -- about 1%. Same tradeoff the
+       * `@SERV_PROV_CODE:*{UPPER}*` arms already make.
+       *
+       * Do NOT try to narrow this by status. The line that mattered is
+       * `status:info` despite containing the word ERROR, and the whole arm holds
+       * zero error-status lines on both agencies measured.
+       */
+      identity.push(
+        `(service:av.biz AND *${upper}-* AND -@JNDI:* AND -@SERV_PROV_CODE:*)`
+      );
     } else {
       // Oregon has no @JNDI at all -- every value is EMPTY -- so the agency
       // attribute is the only identity available and stands on its own. Both
@@ -541,7 +595,7 @@ export class QueryBuilderV2Service implements QueryEngine {
     } else if (input.includeEmse || env.emseIsPrimaryBizLog || forceEmse) {
       identity.push(`(filename:emse.log AND *${lower}-${env.jndi}*)`);
       warnings.push(
-        'Script engine logs (emse.log) carry no agency field of any kind, so they cannot be filtered by agency. Only the lines that name this agency and environment are included -- chiefly the event-log uploads. To reach the script content itself, search filename:emse.log with your script name or trace ID directly in Datadog.'
+        'Script engine logs (emse.log) carry no agency field of any kind, so they cannot be filtered by agency. Only the lines that name this agency are included: the event-log uploads, plus any script output that mentions one of this agency\'s record IDs -- which is where a failing script names itself. A script error that mentions no record ID is still out of reach; for those, search filename:emse.log with your script name or trace ID directly in Datadog.'
       );
     } else {
       warnings.push(

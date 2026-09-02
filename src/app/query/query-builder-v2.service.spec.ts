@@ -31,6 +31,28 @@ describe('QueryBuilderV2Service', () => {
         };
     }
 
+    it('reaches biz lines that name the agency but carry no agency facet', () => {
+        /*
+         * From a real SANTAANA NONPROD1 failure, 2026-08-20. The symptom was
+         * `AccelaAdapter webhook not recieved`; the cause was an EMSE script
+         * error, `"capAltId" is not defined`, inside a PaymentReceiveAfter dump.
+         * The tool found the symptom and could not reach the cause at any
+         * setting, because that line carries neither @JNDI nor @SERV_PROV_CODE
+         * -- both measured at 0 against it -- while naming the agency in its
+         * body as a CAP ID.
+         *
+         * Anchored on the hyphen because the bare form repeats the emse.log
+         * short-code collision: over 24h with payment markers, CRC goes 12,032
+         * to 9 while SANTAANA stays at 13.
+         */
+        const { query } = v2.build(input());
+        expect(query).toContain(
+            '(service:av.biz AND *AGCY-* AND -@JNDI:* AND -@SERV_PROV_CODE:*)'
+        );
+        // Not the bare form, which is what leaked.
+        expect(query).not.toContain('service:av.biz AND *AGCY* AND');
+    });
+
     it('keeps the line that explains a "webhook not received" failure', () => {
         /*
          * Found on a real CRC-TEST failure, 2026-09-02. `AccelaAdapter webhook
@@ -200,11 +222,24 @@ describe('QueryBuilderV2Service', () => {
          *   -*report takes more than*   ->      0 rows   matches everything
          *
          * Single-token wildcards in a negation are fine; multi-word ones are not.
+         *
+         * The `(^|[\s(])` prefix is required, not tidiness. Without it the
+         * hyphen inside a positive term reads as a negation: the agency arm
+         * `*AGCY-* AND -@JNDI:*` matched `-\*` at `AGCY-*` and then captured
+         * " AND -@JNDI:" as though it were a negated multi-word wildcard. A
+         * negation only ever starts a term, so anchor on that.
          */
         const { query } = v2.build(input({ scope: { category: 'payment' } }));
-        for (const m of query.matchAll(/-\*([^*]+)\*/g)) {
+        for (const m of query.matchAll(/(?:^|[\s(])-\*([^*]+)\*/g)) {
             expect(m[1], `negated wildcard "${m[1]}" contains a space`).not.toContain(' ');
         }
+    });
+
+    it('the multi-word negation guard still catches a real offender', () => {
+        // Otherwise the anchoring above could silently disarm the guard.
+        const bad = 'x AND -*report takes more than* AND y';
+        const hits = [...bad.matchAll(/(?:^|[\s(])-\*([^*]+)\*/g)].map((m) => m[1]);
+        expect(hits).toEqual(['report takes more than']);
     });
 
     it('hides routine chatter under a scope, and can be turned off', () => {
