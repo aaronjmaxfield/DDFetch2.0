@@ -1054,6 +1054,39 @@ export function findOption(
 }
 
 /**
+ * Whether this scope selection can be searched on its own, with no application
+ * checkbox ticked.
+ *
+ * -----------------------------------------------------------------------------
+ * WHY THIS IS DERIVED AND NOT A HAND-KEPT LIST
+ * -----------------------------------------------------------------------------
+ * Scope selections come in two kinds, and the difference is already recorded in
+ * `serviceUi`:
+ *
+ *   - Options that name a SERVICE of their own -- Forte, Paypal Commerce and
+ *     SecurePay (all three reach payment-adapter-service), ACDS and ADS. These
+ *     produce a service branch, so the query has a population to search whether
+ *     or not the biz tier is ticked. A PAS-only search is a legitimate thing to
+ *     want, and used to be blocked by the form for no reason: the engine builds
+ *     it happily.
+ *
+ *   - Everything else contributes only CLAUSES -- a CAP ID, a document name, a
+ *     record type, an adapter's `@logger.name`. Clauses narrow a population,
+ *     they do not supply one, so with no application ticked there is literally
+ *     nothing for them to filter and the query would be empty.
+ *
+ * Keeping this as a list of category ids to maintain by hand would go stale the
+ * first time an option gained or lost a service, and the failure would be
+ * silent: either a blocked search that should work, or an empty query.
+ */
+export function scopeSuppliesOwnLogs(
+  categoryId: string | undefined,
+  optionId: string | undefined
+): boolean {
+  return !!findOption(categoryId, optionId)?.serviceUi;
+}
+
+/**
  * The extra markers and chatter exceptions contributed by fields that currently
  * have a value, merged with the category's own.
  *

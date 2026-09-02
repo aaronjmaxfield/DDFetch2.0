@@ -10,7 +10,13 @@ import {
   acaUrlSegment,
   CAPI_SERVICES,
 } from './environments.config';
-import { activeScopeExtras, fieldsFor, findCategory, findOption } from './scopes.config';
+import {
+  activeScopeExtras,
+  fieldsFor,
+  findCategory,
+  findOption,
+  scopeSuppliesOwnLogs,
+} from './scopes.config';
 import {
   chronicExclusion,
   chronicKeptSummary,
@@ -82,8 +88,32 @@ export class QueryBuilderV2Service implements QueryEngine {
     if (svc) branches.push(svc);
 
     if (!branches.length) {
-      errors.push('Select at least one application or additional service.');
+      /*
+       * Scope-aware, because the generic form sent people looking at the
+       * checkboxes when the actual problem was the scope they had picked. A
+       * filter-only scope needs a tier to filter; a service-bearing one does
+       * not. See `scopeSuppliesOwnLogs`.
+       */
+      const scopeLabel = findCategory(input.scope?.category)?.label;
+      errors.push(
+        scopeLabel && !scopeSuppliesOwnLogs(input.scope?.category, input.scope?.option)
+          ? `The ${scopeLabel} scope narrows a search rather than being a log source of its own, so it needs somewhere to look. Select Civic Platform, Citizen Access or Construct API as well.`
+          : 'Select at least one application or additional service.'
+      );
       return { query: '', warnings, errors };
+    }
+
+    /*
+     * Service-only searches are legitimate -- looking at payment-adapter-service
+     * on its own is how you read the adapter conversation without the tiers
+     * either side of it -- but they are narrow enough that saying so is worth
+     * the line. Same principle as the Citizen-Access-only advisory: the engine
+     * states what it left out rather than quietly adding it back.
+     */
+    if (!input.applications.length && services.length) {
+      warnings.push(
+        `Only ${services.map((s) => s.ui).join(' and ')} logs are included -- no Civic Platform, Citizen Access or Construct API. That is a deliberately narrow view: if the answer is not here, tick Civic Platform and run it again.`
+      );
     }
 
     let query = branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];

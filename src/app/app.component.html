@@ -85,6 +85,14 @@
             without it will often miss the line you are looking for.
           </li>
           <li>
+            You can also untick everything and let a scope stand on its own, if the scope has logs
+            of its own -- <code>Payment &gt; Forte</code>, <code>Paypal Commerce</code> or
+            <code>SecurePay</code>, and <code>Documents &gt; ADS</code> or <code>ACDS</code>. That
+            gives you just the adapter or document service, with no platform noise at all. The other
+            scopes narrow a search rather than being a log source, so they still need an application
+            ticked.
+          </li>
+          <li>
             For anything tied to a record, use the full CAP ID rather than the record number the
             customer quotes. Payments, documents and scripts all log the CAP ID. Reports and ADS are
             the exceptions -- they do log the record number.

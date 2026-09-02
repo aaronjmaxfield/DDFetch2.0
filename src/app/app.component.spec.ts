@@ -111,6 +111,17 @@ describe('AppComponent (characterization)', () => {
         box.dispatchEvent(new Event('change'));
     }
 
+    /**
+     * The scope dropdowns are rendered from config, so driving them through the
+     * component's own handlers keeps a test from depending on the order the
+     * options happen to be listed in.
+     */
+    function selectScope(category: string, option: string) {
+        component.onScopeCategoryChange(category);
+        if (option) component.onScopeOptionChange(option);
+        fixture.detectChanges();
+    }
+
     function setTimestamps(begin: string, end: string) {
         setText('inputBeginTimestamp', begin);
         setText('inputEndTimestamp', end);
@@ -320,7 +331,52 @@ describe('AppComponent (characterization)', () => {
         submit();
 
         expect(alertSpy).toHaveBeenCalled();
-        expect(lastArgs(alertSpy)[0]).toContain('At least one Application');
+        /*
+         * Reworded 2026-09-02. The check still fires with nothing selected --
+         * an empty query with no explanation is worse than a prompt -- but it
+         * now names the fix instead of listing the checkbox block, and it is no
+         * longer part of the missing-required-fields alert.
+         */
+        expect(lastArgs(alertSpy)[0]).toContain('Tick at least one application');
+        expect(lastArgs(alertSpy)[0]).toContain('scope that has logs of its own');
+        expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it('lets a scope that has its own service run with no application ticked', () => {
+        /*
+         * The friction this replaces: wanting payment-adapter-service on its
+         * own, with biz and ACA off, and being told to tick an application the
+         * search did not need. Forte, Paypal Commerce and SecurePay all reach
+         * PAS; ACDS and ADS are the document equivalents.
+         */
+        // Scope only reaches the query through the v2 engine; these tests
+        // otherwise pin legacy output.
+        component.engineMode = 'v2';
+        setText('inputServProvCode', 'TESTAGCY');
+        setHost('US');
+        setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
+        setValidWindow();
+        selectScope('payment', 'forte');
+        submit();
+
+        expect(alertSpy).not.toHaveBeenCalled();
+        expect(openSpy).toHaveBeenCalled();
+        expect(openedQuery()).toContain('payment-adapter-service');
+    });
+
+    it('still blocks a filter-only scope, naming the scope rather than the checkboxes', () => {
+        // A document name narrows a population; it does not supply one. With no
+        // tier ticked there is nothing for it to filter.
+        setText('inputServProvCode', 'TESTAGCY');
+        setHost('US');
+        setEnvironment('PROD');
+        uncheck('civicPlatformCheckbox');
+        setValidWindow();
+        selectScope('documents', '');
+        submit();
+
+        expect(lastArgs(alertSpy)[0]).toContain('Documents scope narrows a search');
         expect(openSpy).not.toHaveBeenCalled();
     });
 

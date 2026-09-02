@@ -11,6 +11,7 @@ import {
   ScopeGuidance,
   ScopeOption,
   SCOPES,
+  scopeSuppliesOwnLogs,
 } from './query/scopes.config';
 
 /** Which engine(s) to run for a submission. */
@@ -522,14 +523,44 @@ export class AppComponent {
     const applicationsUsed = this.getCheckedApplications();
     const additionalServices = this.getCheckedAdditionalServices();
 
-    if (applicationsUsed.length === 0 && additionalServices.length === 0) {
-      missingFields.push(
-        'At least one Application (Civic Platform, Citizen Access, CAPI) or Additional Service'
-      );
-    }
-
     if (missingFields.length > 0) {
       alert('Please fill in the following fields: ' + missingFields.join(', '));
+      return false;
+    }
+
+    /*
+     * -------------------------------------------------------------------------
+     * A SCOPE THAT BRINGS ITS OWN LOGS DOES NOT NEED AN APPLICATION.
+     * -------------------------------------------------------------------------
+     * This used to be an unconditional "At least one Application (Civic
+     * Platform, Citizen Access, CAPI) or Additional Service" in the missing-
+     * fields list, which blocked a search the engine would have built without
+     * complaint. Reported as confusing, and the concrete case is a real one:
+     * looking at payment-adapter-service on its own, with biz and ACA unticked,
+     * because PAS is where the adapter conversation is recorded.
+     *
+     * Now it is derived -- see `scopeSuppliesOwnLogs`. Forte, Paypal Commerce,
+     * SecurePay, ACDS and ADS each name a service, so they stand alone. The
+     * filter-only scopes cannot, because a CAP ID or a document name narrows a
+     * population rather than supplying one.
+     *
+     * Kept as a check rather than dropped entirely because the alternative is
+     * worse than a prompt: with nothing selected the engine has no branch to
+     * build, so the user would get an empty result and no idea why. The
+     * difference is that it now fires only when it is true, and names the fix.
+     */
+    const scopeStandsAlone = scopeSuppliesOwnLogs(this.scopeCategory, this.scopeOption);
+    if (
+      applicationsUsed.length === 0 &&
+      additionalServices.length === 0 &&
+      !scopeStandsAlone
+    ) {
+      const scopeLabel = findCategory(this.scopeCategory)?.label;
+      alert(
+        scopeLabel
+          ? `The ${scopeLabel} scope narrows a search rather than being a log source of its own, so it needs somewhere to look. Tick Civic Platform (or Citizen Access, or Construct API) as well.`
+          : 'Tick at least one application -- Civic Platform, Citizen Access or Construct API -- or choose a scope that has logs of its own, such as Payment > Forte or Documents > ADS.'
+      );
       return false;
     }
 
