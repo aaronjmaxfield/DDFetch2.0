@@ -25,6 +25,13 @@
   --field-bg: #ffffff;
   --ink: #1f2330;
   --ink-soft: #5b6072;
+  /* Placeholders only. Deliberately lighter than --ink-soft, which is used for
+     real secondary text like the hints and notes -- a placeholder has to read
+     as an example of what to type, not as something already typed. Roughly
+     2.7:1 on the white field: faint, but the format examples are still legible,
+     which matters because they are the only place the shape of a CAP ID or a
+     trace ID is shown. */
+  --placeholder-ink: #a2a7b8;
   --line: #ddd9e6;
   --radius: 12px;
 }
@@ -628,6 +635,18 @@ label {
     border-color: var(--brand);
     /* Strengthened: on a tinted surface a 16% ring was almost invisible. */
     box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
+  }
+
+  /* Bootstrap's default placeholder is #6c757d, which is only a shade lighter
+     than the real input colour (--ink, #1f2330) and reads as CONTENT: the
+     example CAP IDs and file names looked like values already in the box.
+     Since every placeholder here is a format example rather than a value, it
+     needs to be obviously not-typed-in. */
+  &::placeholder {
+    color: var(--placeholder-ink);
+    /* Firefox applies its own opacity on top of the colour, which would
+       compound with the lighter value and make it a ghost. */
+    opacity: 1;
   }
 }
 
