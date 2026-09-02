@@ -679,9 +679,11 @@ describe('QueryBuilderV2Service', () => {
         });
 
         it("still excludes lSeqRemaining under a scope that does not need it", () => {
-            // 1.9M lines a day, so the exception belongs to the payment category
-            // rather than being global. Documents still excludes it.
-            const query = v2.build(input({ scope: { category: "documents" } })).query;
+            // 1.9M lines a day, so the exception is per-category rather than
+            // global. Payment and Documents both except it -- payment for the
+            // ETRANSACTION/F4PAYMENT sequences, documents for BDOCUMENT_SEQ --
+            // so this checks a scope that genuinely does not need it.
+            const query = v2.build(input({ scope: { category: "reporting" } })).query;
             expect(query).toContain("-\"lSeqRemaining\"");
         });
 
@@ -820,6 +822,236 @@ describe('QueryBuilderV2Service', () => {
             ).query;
             expect(gisBare).toContain('-"Request path is:"');
             expect(gisWithParcel).not.toContain('-"Request path is:"');
+        });
+
+        // ---------------------------------------------- the seven categories
+        //
+        // RESTORED 2026-09-02. These eleven tests were silently deleted by a
+        // slice-based patch script that replaced everything between two
+        // anchors, and the loss went unnoticed because the suite still passed --
+        // the count simply fell from 167 to 147. Hence the guard at the end of
+        // this block, and hence the rule in HANDOFF.md that a green suite does
+        // not prove a patch did what you meant.
+
+        function scoped(category: string, fields: Record<string, string> = {}) {
+            return v2.build(input({ scope: { category, fields } }));
+        }
+
+        it("offers the scope categories in alphabetical order", () => {
+            // Sorted at the source so the array and the dropdown cannot drift.
+            // Construct is deliberately absent: its lines live in service:capi,
+            // reached by the Construct API checkbox, and a category's bizMarkers
+            // only narrow the BIZ tier -- so it did nothing while implying it did.
+            expect(SCOPES.map((c) => c.label)).toEqual([
+                "Batch jobs",
+                "Documents",
+                "EMSE scripts",
+                "GIS / Parcels",
+                "Payment",
+                "Records",
+                "Reports",
+            ]);
+            expect(SCOPES.map((c) => c.id)).not.toContain("construct");
+        });
+
+        it("GIS excludes the APO marker that would make it 96% wrong", () => {
+            // *APO* adds 196,579 errors of which 169,097 are IJ000453 ... FROM
+            // RSERV_PROV, a generic agency-registry query caught through one
+            // incidental column name.
+            const { query } = scoped("gis");
+            expect(query).toContain("*parcel*");
+            expect(query).not.toContain("*APO*");
+        });
+
+        it("GIS recovers the record-to-parcel line the chatter tier removes", () => {
+            // Parcel 04704452 has 6 lines; 0 survive the scope without this, 4 with.
+            expect(scoped("gis", { parcelNumber: "04704452" }).query).not.toContain(
+                '-"Request path is:"'
+            );
+        });
+
+        it("EMSE keeps THROW off the category markers", () => {
+            // Platform-wide, not EMSE: outside EMSE it is 729,425 lines and
+            // 724,702 errors. As a category marker it injected 183,605 unrelated
+            // errors against one agency's 2,726 real ones.
+            expect(scoped("emse").query).not.toContain('"THROW"');
+            expect(scoped("emse", { emseTraceId: "W-20260101120000000" }).query).toContain(
+                '"THROW"'
+            );
+        });
+
+        it("EMSE and Batch force the emse.log arm on", () => {
+            // +1.0% to +40.0% lines and exactly zero errors on four agencies,
+            // because emse.log is 100% status:info even though 1,905,251 of its
+            // lines carry an aa_exception block.
+            expect(scoped("emse").query).toContain("filename:emse.log");
+            expect(scoped("batch").query).toContain("filename:emse.log");
+            expect(scoped("payment").query).not.toContain("filename:emse.log");
+        });
+
+        it("Records keeps the null-CAP-type family off the category markers", () => {
+            // As a category marker *getCapTypeByPK* drags in 164,754 lines a day
+            // of getCapTypeByPK(:null/null/null/null). On the recordType field it
+            // drops to 20 while still answering the question asked.
+            expect(scoped("records").query).not.toContain("*getCapTypeByPK*");
+            expect(scoped("records", { recordType: "ABC_GENERAL" }).query).toContain(
+                "*getCapTypeByPK*"
+            );
+        });
+
+        it("Batch searches the underscore twin, which holds most of the errors", () => {
+            // *BATCH_JOB* AND NOT *batchjob* is 467,843 lines with 439,277
+            // errors -- more errors than *batchjob* finds in total. Error-level
+            // intersection is exactly 0 on all six agencies tested.
+            const { query } = scoped("batch");
+            expect(query).toContain("*batchjob*");
+            expect(query).toContain("*BATCH_JOB*");
+        });
+
+        it("Batch un-hides BatchJobLog, and says it kept it", () => {
+            // Hidden: CGS 28 errors instead of 879, and the warn count is zero
+            // on six of six agencies -- and the warns carry the job dump.
+            const { query, warnings } = scoped("batch");
+            expect(query).not.toContain('-"BatchJobLog"');
+            expect(
+                warnings.some((w) => w.includes("Kept because this scope is about them"))
+            ).toBe(true);
+        });
+
+        it("Reporting un-hides the slow-report warning it exists to find", () => {
+            // Before this the tool returned 1 warning for one agency, 1 for
+            // another and zero for three more. Three real tickets: 0 rows -> 331,
+            // 0 -> 857, 128 -> 12,985.
+            const { query } = scoped("reporting");
+            expect(query).not.toContain('-"report takes more than"');
+            // But NOT the record-search pattern the brief wrongly assumed was
+            // reporting: 35,636 lines, zero carrying any reporting marker.
+            expect(query).toContain('-"It is risky to retrieve too many records"');
+        });
+
+        it("Reporting scopes on message shapes, not engine names", () => {
+            // The engine names contribute 0 unique biz-tier lines, and one agency
+            // is 100% Crystal while another is 100% SSRS -- so an engine-name
+            // marker set discards one of them entirely.
+            const { query } = scoped("reporting");
+            expect(query).toContain('"report takes more than"');
+            expect(query).not.toContain("*ReportServer*");
+            expect(query).not.toContain("*CReport*");
+        });
+
+        it("does not name a kept chronic pattern as hidden", () => {
+            // chronicSummary must take the same exceptions as chronicExclusion,
+            // or the warning sends the user hunting for a toggle to recover data
+            // already on screen.
+            const hidden = scoped("reporting").warnings.find((w) =>
+                w.includes("constant in this environment")
+            );
+            expect(hidden).toBeDefined();
+            expect(hidden).not.toContain("Slow-report warnings");
+        });
+
+        // ------------------------------------- the CRC-TEST upload, 2026-09-02
+
+        it("keeps the two lines that explain where a document went", () => {
+            /*
+             * From a real investigation. An upload could not be found: the ADS
+             * file key returns zero anywhere (the full key and its tail both),
+             * and ADS had no lines under that environment's own agency code.
+             *
+             * Four lines were the evidence and this scope dropped two. The
+             * `{AGENCY}-{ENV}_BDOCUMENT_SEQ lSeqRemaining` line -- the row
+             * actually being written -- was in routine chatter, and `EDMS
+             * Config=`, which showed the environment files its documents under a
+             * DIFFERENT agency code on a different server, was in the chronic
+             * tier. Without the second one the search returns zero and reads as
+             * "nothing happened".
+             */
+            const { query } = scoped("documents");
+            expect(query).not.toContain('-"lSeqRemaining"');
+            expect(query).not.toContain('-"EDMS Config="');
+            // Still excluded for a scope that does not need them.
+            expect(scoped("payment").query).toContain('-"EDMS Config="');
+        });
+
+        it("offers document name, and prefers the wildcard form", () => {
+            // 6.7M lines a day carry a document or file name, across biz, ACA,
+            // indexer and ACDS. Wildcard beats quoted on recall -- 378 against
+            // 336 on a multi-word name, 6 against 2 with an extension -- which is
+            // the opposite of the usual advice, so it is measured not assumed.
+            const { query } = scoped("documents", { documentName: "MyDocument.pdf" });
+            expect(query).toContain("*MyDocument.pdf*");
+            expect(query).not.toContain('"MyDocument.pdf"');
+        });
+
+        it("warns when a document name is too short to be distinctive", () => {
+            // A bare four-character name matched 2,830 lines in a day against 6
+            // for the same name with its extension.
+            const { warnings } = scoped("documents", { documentName: "Doc1" });
+            expect(warnings.some((w) => w.includes("match unrelated documents"))).toBe(true);
+        });
+
+        /*
+         * THE TIER RULE, enforced structurally. Also restored 2026-09-02.
+         *
+         * Scope-field clauses and option extraClauses are AND-ed onto the WHOLE
+         * query, across every tier, so a clause that positively requires
+         * something only one tier carries deletes all the others silently.
+         *
+         * This has happened twice for real: the custom-adapter clause began
+         * `service:aca` and deleted the biz tier on every agency, and the
+         * Construct endpoint field required @Properties.log.MethodName, taking
+         * one agency's 2,280,288 in-scope biz lines to zero.
+         *
+         * LIMIT: this catches STRUCTURAL tier-exclusivity only. Free text that
+         * happens to live in one tier passes and can still delete the others --
+         * the ADS `*FileKey=...*` clause passes here and is safe only because
+         * FileKey was measured present across eight services.
+         */
+        it("has no globally-ANDed clause that can delete a whole tier", () => {
+            const ctx = {
+                agencyUpper: "AGCY",
+                agencyLower: "agcy",
+                env: { ui: "PROD", jndi: "prod" } as never,
+            };
+
+            const offenders: string[] = [];
+            const check = (label: string, clause: string) => {
+                const requiresService = /(^|\s|\()service:/.test(clause);
+                const requiresFacet = /(^|\s|\()@[A-Za-z_.]+:/.test(clause);
+                if (!requiresService && !requiresFacet) return;
+                const hasNegatedArm = /OR\s+-(@[A-Za-z_.]+|service):/.test(clause);
+                // A bare free-text term is satisfiable in any tier. The
+                // lookbehind distinguishes `OR *VALUE*` from `@FACET:*VALUE*`.
+                const hasFreeTextArm = /(?<![:\w])\*[^*\s()]+\*/.test(clause);
+                if (!hasNegatedArm && !hasFreeTextArm) offenders.push(`${label}: ${clause}`);
+            };
+
+            for (const category of SCOPES) {
+                for (const option of category.options) {
+                    if (option.extraClause) {
+                        // Check the form the BUILDER emits -- it wraps every
+                        // extraClause with an escape for the other tiers.
+                        check(
+                            `${category.id}/${option.id} extraClause`,
+                            `((${option.extraClause}) OR -service:aca)`
+                        );
+                    }
+                }
+                const allFields = [
+                    ...(category.fields ?? []).map((f) => [category.id, f] as const),
+                    ...category.options.flatMap((o) =>
+                        (o.fields ?? []).map((f) => [`${category.id}/${o.id}`, f] as const)
+                    ),
+                ];
+                for (const [scope, field] of allFields) {
+                    check(`${scope}/${field.id}`, field.clause("VALUE", ctx));
+                }
+            }
+
+            expect(
+                offenders,
+                `these clauses can delete a tier:\n${offenders.join("\n")}`
+            ).toEqual([]);
         });
 
         it("has no chatterException that does not match a real pattern", () => {

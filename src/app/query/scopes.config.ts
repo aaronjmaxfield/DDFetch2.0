@@ -452,11 +452,34 @@ const CATEGORIES: ScopeCategory[] = [
         'Preview fails while download still works',
       ],
       notes: [
+        'The ADS file key is NOT logged when a document is uploaded. Search the record ID, the document name, or the user name instead -- an upload records all three.',
+        'An environment does not necessarily file its documents under its own name. Check the "EDMS Config=" line: one test environment was posting to the SUPP server as CRC_SUPP, so searching its own agency code returned nothing at all.',
         'North American agencies are almost always on ADS and APAC agencies almost always on ACDS. If one returns nothing, try the other before concluding anything.',
         'ADS records what was requested, not whether it worked -- practically every line is an HTTP 200, and agency-scoped ADS searches return no errors at all by design.',
       ],
     },
-    fields: [capId],
+    fields: [
+      capId,
+      {
+        id: 'documentName',
+        label: 'Document or file name',
+        placeholder: 'MyDocument.pdf',
+        hint: 'Either the file name or the document name -- both are logged, on 6.7 million lines a day across the biz, ACA, indexer and ACDS tiers. Paste it exactly, including the extension.',
+        /*
+         * Wildcard, not quoted, and measured rather than assumed. On a real
+         * multi-word name: `*workers comp exemption*` = 378 lines,
+         * `"workers comp exemption"` = 336, interleaved
+         * `*workers*comp*exemption*` = 286. Same ordering on a single token with
+         * an extension: `*Doc1.pdf*` = 6 against `"Doc1.pdf"` = 2. The quoted
+         * form UNDER-matches here, which is the opposite of the usual advice.
+         */
+        clause: (v) => `*${v.trim()}*`,
+        warn: (v) =>
+          v.trim().length < 6
+            ? `"${v.trim()}" is short enough to match unrelated documents. Measured: a bare three-character name matched 2,830 lines in a day against 6 for the same name with its extension. Include the extension, or use the full name.`
+            : undefined,
+      },
+    ],
     // Measured: document 229,477, EDMS 154,289, DocumentService 150,809,
     // upload 19,152, attachment 3,319, BDOCUMENT 223, FileKey 48. Documents are
     // a far larger share of biz volume than payments, so this scope cuts less --
@@ -471,6 +494,32 @@ const CATEGORIES: ScopeCategory[] = [
       '*BDOCUMENT*',
       '*FileKey*',
     ],
+    /*
+     * `lSeqRemaining` hides the document-creation fingerprint. The line reads
+     * `{AGENCY}-{ENV}_BDOCUMENT_SEQ lSeqRemaining:10 LastSeq:15611`, and it is
+     * how you confirm a BDOCUMENT row was actually written. On a real upload
+     * traced 2026-09-02 it was one of only four evidence lines and this scope
+     * was dropping it. Costs 779 lines and ZERO errors over 24h on a large
+     * production agency -- same reasoning as the payment exception.
+     */
+    chatterExceptions: ['"lSeqRemaining"'],
+    /*
+     * `EDMS Config=` is the line that says WHERE an agency's documents go, and
+     * for this scope it earns its cost.
+     *
+     * It resolved a real case on 2026-09-02. An upload to CRC-TEST could not be
+     * found in ADS under `agencyCode=CRC_TEST`, because this line showed
+     * `ADS_SERVER_URL=https://ads-supp.accela.com/...` and
+     * `ADS_SERV_PROV_CODE=CRC_SUPP` -- the TEST environment files its documents
+     * under the SUPP agency code. Without it the search returns zero and reads
+     * as "nothing happened".
+     *
+     * Cost stated honestly: 148,562 lines over 24 hours on a large production
+     * agency. But it is ~21 lines in the few-minute window an actual
+     * investigation uses, and 9 of those 148,562 are errors. The volume scales
+     * with the window; the answer does not.
+     */
+    chronicExceptions: ['"EDMS Config="'],
     options: [
       {
         id: 'acds',
@@ -483,12 +532,18 @@ const CATEGORIES: ScopeCategory[] = [
         serviceUi: 'ADS',
         fields: [
           {
-            // ADS access logs carry the document key in the query string. This
-            // is the only per-document handle on that tier.
+            /*
+             * Verified real 2026-09-02: 1,213,088 lines estate-wide in 24h,
+             * 342,239 of them on `av.ads`. But it is NOT on the upload line. An
+             * upload traced that day recorded permitId, CustomId, userName and
+             * action=UploadForm and no file key at all, so a key taken from an
+             * upload finds nothing -- the full 30-character key and its tail
+             * both returned zero over 24 hours.
+             */
             id: 'fileKey',
             label: 'File key',
             placeholder: '0000aaaa-11bb-22cc-33dd-444444eeeeee',
-            hint: 'ADS logs the document key in the access-log query string.',
+            hint: 'From a document download or retrieval URL. This does NOT appear on upload lines, so to trace an upload search the record ID or the document name instead.',
             clause: (v) => `*FileKey=${v.trim()}*`,
           },
         ],
