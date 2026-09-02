@@ -149,6 +149,20 @@ export interface ScopeCategory {
   label: string;
   /** Shown in the Instructions panel while this scope is selected. */
   guidance?: ScopeGuidance;
+  /**
+   * Keep `av.indexer` for this whole category, not just for one field.
+   *
+   * Documents needs it. The indexer is where document metadata lives: 134,182 of
+   * the 152,909 lines a day that name a document, plus the DOCUMENT index
+   * messages that carry the BDOCUMENT primary key. Excluding it from a document
+   * search was simply wrong -- on a real upload, 2 of the 3 lines carrying the
+   * record ID were indexer lines, which is why a record-ID search returned ONE
+   * line out of 30.
+   *
+   * Cheap, measured: +9,798 lines on LEECO over 24h (6%), +2,010 on SEATTLE
+   * (1%), +2 on the test agency.
+   */
+  keepIndexer?: boolean;
   /** Shown for every option in the category. */
   fields?: ScopeField[];
   options: ScopeOption[];
@@ -461,7 +475,10 @@ const CATEGORIES: ScopeCategory[] = [
         'Preview fails while download still works',
       ],
       notes: [
-        'The ADS file key is NOT logged when a document is uploaded. Search the record ID or the user name instead -- an upload records both.',
+        'A file key only exists on DOWNLOADS -- measured across 1.2 million uploads, not one carried one. To trace an upload use the Document ID or the trace ID.',
+        'For an upload, do not filter by identifier at all -- the scope alone returns 19 of the 30 lines. Narrow by TIME instead, then read them.',
+        'The record ID does NOT reach the document lines. It appears only on entityType=CAP lines, which a document search filters out, so typing it returns nothing even though the upload is right there. The document is identified as {AGENCY},{document id}.',
+        'If you must narrow, use the trace ID from any line in the upload -- that is the only handle that spans the whole operation.',
         'A back-office upload does not always record the file name either. If a document-name search returns nothing, that is not proof the upload failed -- fall back to the record ID.',
         'An environment does not necessarily file its documents under its own name. Check the "EDMS Config=" line: one test environment was posting to the SUPP server as CRC_SUPP, so searching its own agency code returned nothing at all.',
         'North American agencies are almost always on ADS and APAC agencies almost always on ACDS. If one returns nothing, try the other before concluding anything.',
@@ -470,6 +487,24 @@ const CATEGORIES: ScopeCategory[] = [
     },
     fields: [
       capId,
+      {
+        /*
+         * The real per-document handle, and the one nobody knows to ask for.
+         * The logs identify a document as `{AGENCY},{BDOCUMENT id}` -- as
+         * `entityPK=CRC,15612`, `Primary Key:CRC,15612` and
+         * `gbJMS:CRC:DOCUMENT:CRC,15612`. Neither the record ID nor the file
+         * name is the document's identity.
+         */
+        id: 'documentId',
+        label: 'Document ID',
+        placeholder: '15612',
+        hint: 'The BDOCUMENT id, which is how the logs identify a document -- you will see it as {AGENCY},{id}. Find it on the index or sequence lines for the upload.',
+        clause: (v, ctx) => `(*${ctx.agencyUpper},${v.trim()}* OR *${v.trim()}*)`,
+        warn: (v) =>
+          ALT_ID.test(v.trim())
+            ? `"${v.trim()}" looks like a record number rather than a document id. The document id is a plain number, usually five digits.`
+            : undefined,
+      },
       {
         id: 'documentName',
         label: 'Document or file name',
@@ -519,15 +554,20 @@ const CATEGORIES: ScopeCategory[] = [
       '*BDOCUMENT*',
       '*FileKey*',
     ],
+    keepIndexer: true,
     /*
-     * `lSeqRemaining` hides the document-creation fingerprint. The line reads
-     * `{AGENCY}-{ENV}_BDOCUMENT_SEQ lSeqRemaining:10 LastSeq:15611`, and it is
-     * how you confirm a BDOCUMENT row was actually written. On a real upload
-     * traced 2026-09-02 it was one of only four evidence lines and this scope
-     * was dropping it. Costs 779 lines and ZERO errors over 24h on a large
-     * production agency -- same reasoning as the payment exception.
+     * `lSeqRemaining` hides the document write itself, and a single upload emits
+     * THREE of these lines, not one: `BDOCUMENT_SEQ` (the row),
+     * `XDOCUMENT_ENTITY_SEQ` (the link to the record) and
+     * `DOCUMENT_STATUS_HISTORY_RES_SEQ` (the status history). All three were
+     * being dropped. Costs 779 lines and ZERO errors over 24h on a large agency.
+     *
+     * `AuditBusiness` is the audit trail for the upload. On a real upload traced
+     * 2026-09-02: `Prepare 21 AuditModel and start Auditing`, then `real
+     * auditing count: 11` -- four lines in the twelve seconds the upload took.
+     * For a documents investigation that is evidence, not chatter.
      */
-    chatterExceptions: ['"lSeqRemaining"'],
+    chatterExceptions: ['"lSeqRemaining"', '"AuditBusiness"'],
     /*
      * `EDMS Config=` is the line that says WHERE an agency's documents go, and
      * for this scope it earns its cost.
@@ -561,14 +601,17 @@ const CATEGORIES: ScopeCategory[] = [
              * Verified real 2026-09-02: 1,213,088 lines estate-wide in 24h,
              * 342,239 of them on `av.ads`. But it is NOT on the upload line. An
              * upload traced that day recorded permitId, CustomId, userName and
-             * action=UploadForm and no file key at all, so a key taken from an
-             * upload finds nothing -- the full 30-character key and its tail
-             * both returned zero over 24 hours.
+             * action=UploadForm and no file key at all.
+             *
+             * Measured categorically over 7 days: 1,211,714 ADS lines with
+             * `action=UploadForm` and ZERO of them carrying a `FileKey=`, against
+             * 2,382,158 download lines that do. So this field answers "what
+             * happened to this download", never "what happened to this upload".
              */
             id: 'fileKey',
             label: 'File key',
             placeholder: '0000aaaa-11bb-22cc-33dd-444444eeeeee',
-            hint: 'From a document download or retrieval URL. This does NOT appear on upload lines, so to trace an upload search the record ID or the document name instead.',
+            hint: 'DOWNLOADS ONLY. A file key never appears on an upload, so if you are tracing an upload use the Document ID or the trace ID instead.',
             clause: (v) => `*FileKey=${v.trim()}*`,
           },
         ],

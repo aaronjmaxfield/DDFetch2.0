@@ -983,7 +983,48 @@ describe('QueryBuilderV2Service', () => {
             expect(query).not.toContain('"MyDocument.pdf"');
         });
 
-        it("keeps the indexer when a document name is given", () => {
+        it("keeps the indexer for the whole Documents scope", () => {
+            /*
+             * The indexer holds 134,182 of the 152,909 lines a day that name a
+             * document, plus the DOCUMENT index messages carrying the BDOCUMENT
+             * primary key. Excluding it from a document search was wrong: on a
+             * real upload, 2 of the 3 lines carrying the record ID were indexer
+             * lines, which is why a record-ID search returned ONE line out of 30.
+             *
+             * Cheap: +9,798 lines on LEECO over 24h (6%), +2,010 on SEATTLE (1%).
+             */
+            expect(v2.build(input({ scope: { category: "documents" } })).query).not.toContain(
+                "-service:av.indexer"
+            );
+            // Other scopes still exclude it.
+            expect(v2.build(input({ scope: { category: "payment" } })).query).toContain(
+                "-service:av.indexer"
+            );
+        });
+
+        it("keeps the audit trail for a documents search", () => {
+            // On a real upload: `Prepare 21 AuditModel and start Auditing` then
+            // `real auditing count: 11` -- four lines in the twelve seconds the
+            // upload took, all removed by the AuditBusiness chatter pattern.
+            expect(v2.build(input({ scope: { category: "documents" } })).query).not.toContain(
+                '-"AuditBusiness"'
+            );
+            expect(v2.build(input({ scope: { category: "payment" } })).query).toContain(
+                '-"AuditBusiness"'
+            );
+        });
+
+        it("offers the document id, which is how logs identify a document", () => {
+            // `entityPK=CRC,15612`, `Primary Key:CRC,15612`,
+            // `gbJMS:CRC:DOCUMENT:CRC,15612`. Neither the record ID nor the file
+            // name is the document's identity.
+            const { query } = v2.build(
+                input({ scope: { category: "documents", fields: { documentId: "15612" } } })
+            );
+            expect(query).toContain("*AGCY,15612*");
+        });
+
+        it("keeps the indexer for a document-name search too", () => {
             /*
              * The indexer is excluded by default under any scope, and it holds
              * 134,280 of the 152,909 lines a day that actually name a document.
@@ -999,9 +1040,13 @@ describe('QueryBuilderV2Service', () => {
                 input({ scope: { category: "documents", fields: { documentName: "MyDoc.pdf" } } })
             ).query;
             expect(withName).not.toContain("-service:av.indexer");
-
-            const without = v2.build(input({ scope: { category: "documents" } })).query;
-            expect(without).toContain("-service:av.indexer");
+            // The field-level flag is now redundant for Documents, which keeps
+            // the indexer for the whole category -- but it stays on the field so
+            // the capability is reusable, and so a future category that does not
+            // keep the indexer still gets it when a name is typed.
+            const docsField = SCOPES.find((c) => c.id === "documents")
+                ?.fields?.find((f) => f.id === "documentName");
+            expect(docsField?.keepIndexer).toBe(true);
         });
 
         it("warns when a document name is too short to be distinctive", () => {

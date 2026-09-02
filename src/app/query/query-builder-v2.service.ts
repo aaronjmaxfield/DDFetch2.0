@@ -474,7 +474,7 @@ export class QueryBuilderV2Service implements QueryEngine {
       input.scope?.option,
       input.scope?.fields
     ).keepIndexer;
-    if (category && !input.includeIndexer && !fieldWantsIndexer) {
+    if (category && !input.includeIndexer && !fieldWantsIndexer && !category.keepIndexer) {
       scopeParts.push('-service:av.indexer');
     }
 
