@@ -308,16 +308,49 @@ export class QueryBuilderV2Service implements QueryEngine {
     warnings: string[]
   ): string {
     const wantsAca = input.applications.includes('Citizen Access');
-    // ACA is the front end and Civic Platform the back end, so an ACA search
-    // always needs the biz tier too. Preserved from legacy deliberately.
-    const wantsBiz = input.applications.includes('Civic Platform') || wantsAca;
-    if (!wantsBiz) return '';
+
+    /*
+     * -------------------------------------------------------------------------
+     * "CITIZEN ACCESS" ALONE NOW MEANS CITIZEN ACCESS ALONE. Corrected 2026-09-02.
+     * -------------------------------------------------------------------------
+     * This used to read `includes('Civic Platform') || wantsAca`, on the
+     * reasoning that ACA is the front end and Civic Platform the back end, so an
+     * ACA search "always needs the biz tier too". That reasoning is sound as
+     * ADVICE and wrong as BEHAVIOUR: it made the checkbox silently select a tier
+     * the user had deliberately left unticked.
+     *
+     * Reported as "the ACA only box is also pulling biz and indexer logs", and
+     * measured on a 20-minute CRC-TEST window with only Citizen Access ticked:
+     *
+     *     av.biz      67
+     *     av.indexer  54
+     *     av.web      19
+     *     aca         18   <-- the only lines that were asked for
+     *     av.cfmx      1
+     *
+     * 18 of 159 lines, so 89% of the result set was the tier the box did not
+     * select, and the indexer got in because its exclusion is scope-gated. The
+     * ACA arms in isolation return exactly those 18 and nothing else.
+     *
+     * The domain fact survives as a warning below rather than as a hidden OR.
+     * Widening a search without saying so is the same failure as narrowing one
+     * without saying so, which this engine already refuses to do.
+     */
+    const wantsBiz = input.applications.includes('Civic Platform');
+    if (!wantsBiz && !wantsAca) return '';
 
     const upper = agency.toUpperCase();
     const lower = agency.toLowerCase();
     const identity: string[] = [];
 
-    if (host.usesJndi && !env.jndiDead) {
+    if (!wantsBiz) {
+      /*
+       * Citizen Access only. Every arm below identifies a BIZ-tier line, so all
+       * of them are skipped -- including the ones that look tier-neutral.
+       * @JNDI and @SERV_PROV_CODE are exactly how the indexer, av.web and
+       * av.cfmx lines got in: they are agency-tagged too.
+       */
+    } else if (host.usesJndi && !env.jndiDead) {
       // Facet values are case sensitive, so both casings are needed. Real values
       // are {lower}-{lower} or {UPPER}-{UPPER}; no mixed pair was observed.
       identity.push(`@JNDI:*${lower}-${env.jndi}*`, `@JNDI:*${upper}-${env.jndi.toUpperCase()}*`);
@@ -418,7 +451,12 @@ export class QueryBuilderV2Service implements QueryEngine {
      * agencies' lines.
      */
     const forceEmse = findCategory(input.scope?.category)?.forceEmse === true;
-    if (input.includeEmse || env.emseIsPrimaryBizLog || forceEmse) {
+    // emse.log is a biz-tier file, so it follows the tier and not the toggle.
+    // Announcing an EMSE decision on a Citizen-Access-only search would be
+    // describing a tier that is not in the query.
+    if (!wantsBiz) {
+      /* Not in scope. */
+    } else if (input.includeEmse || env.emseIsPrimaryBizLog || forceEmse) {
       identity.push(`(filename:emse.log AND *${lower}-${env.jndi}*)`);
       warnings.push(
         'Script engine logs (emse.log) carry no agency field of any kind, so they cannot be filtered by agency. Only the lines that name this agency and environment are included -- chiefly the event-log uploads. To reach the script content itself, search filename:emse.log with your script name or trace ID directly in Datadog.'
@@ -503,9 +541,35 @@ export class QueryBuilderV2Service implements QueryEngine {
       } else {
         warnings.push(
           env.acaNote ??
-            `Citizen Access logs are not collected for ${host.ui} ${env.ui}, so the ACA filter was left out. Only Civic Platform logs will be returned.`
+            `Citizen Access logs are not collected for ${host.ui} ${env.ui}, so the ACA filter was left out.` +
+              (wantsBiz
+                ? ' Only Civic Platform logs will be returned.'
+                : ' Citizen Access is the only application selected, so this search has nothing to return -- tick Civic Platform as well.')
         );
       }
+    }
+
+    /*
+     * Nothing to identify with. Only reachable when Citizen Access is the sole
+     * selection on a row that collects no ACA logs, and the warning above has
+     * already said so. Returning an empty branch is essential rather than tidy:
+     * `(() AND host:*x*)` would match the entire host.
+     */
+    if (!identity.length) return '';
+
+    /*
+     * The advice that used to be enforced silently. Keeping it as a warning is
+     * the point of the change: most of what ACA shows a citizen as a failure is
+     * raised in the biz tier, and an ACA-only search cannot see the cause.
+     *
+     * The SANTAANA case is the clean example -- ACA logged `AccelaAdapter webhook
+     * not recieved`, and the evidence that the webhook HAD arrived, two minutes
+     * earlier, was on a biz-tier line.
+     */
+    if (wantsAca && !wantsBiz) {
+      warnings.push(
+        'Only Citizen Access logs are included. ACA is the front end, so the cause of a citizen-facing failure is usually logged in Civic Platform rather than here -- tick Civic Platform as well if the ACA lines do not explain it.'
+      );
     }
 
     /*
@@ -551,7 +615,10 @@ export class QueryBuilderV2Service implements QueryEngine {
       input.scope?.option,
       input.scope?.fields
     ).keepIndexer;
-    if (category && !input.includeIndexer && !fieldWantsIndexer && !category.keepIndexer) {
+    // Biz-tier only: the indexer is agency-tagged, so it arrives through the
+    // @JNDI arms. With those gone it cannot match, and excluding a service that
+    // is already unreachable would just add a term to the query for show.
+    if (wantsBiz && category && !input.includeIndexer && !fieldWantsIndexer && !category.keepIndexer) {
       scopeParts.push('-service:av.indexer');
     }
 
@@ -574,7 +641,14 @@ export class QueryBuilderV2Service implements QueryEngine {
     const preciseOption = findOption(input.scope?.category, input.scope?.option);
     const acaScopedByOption = !!preciseOption?.extraClause;
 
-    if (category?.bizMarkers?.length && input.scopeBizTier !== false) {
+    /*
+     * Also biz-tier only, and this one matters. The markers exist to scope a
+     * tier that has no other handle; applied to ACA lines they DELETE ERRORS --
+     * measured at 720 down to 8 on MILARA, because ACA error text frequently
+     * carries no payment word. With no biz tier present there is nothing left
+     * for them to narrow, so they could only do that damage.
+     */
+    if (wantsBiz && category?.bizMarkers?.length && input.scopeBizTier !== false) {
       /*
        * Fields that currently hold a value can add markers of their own. That is
        * how the Construct trace ID reaches the biz-tier response line: 21.8M

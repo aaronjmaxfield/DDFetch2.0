@@ -379,7 +379,29 @@ describe('QueryBuilderV2Service', () => {
 
         expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(true);
         expect(query).not.toContain('service:*aca*');
-        // Still returns the biz-tier query rather than nothing.
+        /*
+         * Updated 2026-09-02. This used to assert the biz tier came back anyway,
+         * which was the union bug: ticking Citizen Access silently selected a
+         * tier the user had left unticked. Citizen Access alone on a row that
+         * collects no ACA logs now returns nothing and says why.
+         *
+         * The empty string is also a correctness guard, not just tidiness -- an
+         * identity-free `(() AND host:*orpdev*)` would match the entire host.
+         */
+        expect(query).toBe('');
+        expect(warnings.some((w) => w.includes('tick Civic Platform'))).toBe(true);
+    });
+
+    it('A5: OREGON DEV still returns the biz tier when Civic Platform is ticked', () => {
+        // The other half of the pair above: the tier is available, it just has
+        // to be asked for.
+        const { query } = v2.build(
+            input({
+                host: 'OREGON',
+                environment: 'DEV',
+                applications: ['Citizen Access', 'Civic Platform'],
+            })
+        );
         expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
     });
 
@@ -394,14 +416,67 @@ describe('QueryBuilderV2Service', () => {
         );
 
         expect(query).toContain('filename:agcy-oregon-config-aca*');
-        expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(false);
+        /*
+         * Narrowed from `includes('Citizen Access')` on 2026-09-02. The subject
+         * of this test is that the user is not told the data is missing, and
+         * "not collected" is the phrase that does the telling. A Citizen-Access-
+         * only search now also carries a separate advisory saying the cause is
+         * usually in the biz tier, which mentions Citizen Access and is not what
+         * this test is about.
+         */
+        expect(warnings.some((w) => w.includes('not collected'))).toBe(false);
     });
 
     it('A5: does not warn where ACA logs do exist', () => {
         const { warnings } = v2.build(
             input({ host: 'OREGON', environment: 'PROD', applications: ['Citizen Access'] })
         );
-        expect(warnings.some((w) => w.includes('Citizen Access'))).toBe(false);
+        // See the note above on why this is the "not collected" phrase rather
+        // than any mention of Citizen Access.
+        expect(warnings.some((w) => w.includes('not collected'))).toBe(false);
+    });
+
+    it('says that an ACA-only search cannot see the cause of most ACA failures', () => {
+        /*
+         * The domain fact that used to be enforced by silently OR-ing the biz
+         * tier in. It survives as advice, which is the honest form: SANTAANA
+         * logged `AccelaAdapter webhook not recieved` in ACA while the evidence
+         * that the webhook HAD arrived, two minutes earlier, sat on a biz line.
+         */
+        const acaOnly = v2.build(input({ applications: ['Citizen Access'] }));
+        expect(acaOnly.warnings.some((w) => w.includes('usually logged in Civic Platform'))).toBe(
+            true
+        );
+
+        // And it must not nag when the biz tier is actually included.
+        const both = v2.build(input({ applications: ['Citizen Access', 'Civic Platform'] }));
+        expect(both.warnings.some((w) => w.includes('usually logged in Civic Platform'))).toBe(
+            false
+        );
+    });
+
+    it('a Citizen Access search returns no biz-tier, indexer or EMSE arms', () => {
+        /*
+         * Reported as "the ACA only box is also pulling biz and indexer logs".
+         * Measured on a 20-minute CRC-TEST window with only Citizen Access
+         * ticked: av.biz 67, av.indexer 54, av.web 19, aca 18, av.cfmx 1 -- so
+         * 89% of the result set came from the tier the box did not select.
+         *
+         * @JNDI and @SERV_PROV_CODE are the route: the indexer, av.web and
+         * av.cfmx are all agency-tagged, so they satisfy a biz identity arm.
+         */
+        const { query } = v2.build(
+            input({ applications: ['Citizen Access'], includeEmse: true })
+        );
+
+        expect(query).not.toContain('@JNDI');
+        expect(query).not.toContain('@SERV_PROV_CODE');
+        expect(query).not.toContain('emse.log');
+        // Nothing to exclude once the arms that carried it are gone.
+        expect(query).not.toContain('-service:av.indexer');
+        // Every remaining arm is an ACA arm.
+        expect(query).toContain('filename:agcy-prod*');
+        expect(query).toContain('service:aca');
     });
 
     it('A6: OREGON TRAIN is single-tenant, so the filename stays hardcoded', () => {
@@ -426,7 +501,11 @@ describe('QueryBuilderV2Service', () => {
         // `*port-prod*` matched northport, westport and sfport.
         //
         // A16 still holds for @JNDI, where the code genuinely sits mid-token.
-        const { query } = v2.build(input({ applications: ['Citizen Access'] }));
+        // Both tiers, because the @JNDI half of the assertion is a biz-tier
+        // clause and Citizen Access no longer selects that tier for you.
+        const { query } = v2.build(
+            input({ applications: ['Citizen Access', 'Civic Platform'] })
+        );
 
         expect(query).toContain('filename:agcy-prod*');
         expect(query).not.toContain('filename:*agcy-prod*');
@@ -509,12 +588,16 @@ describe('QueryBuilderV2Service', () => {
         // in all four Oregon environments. The free-text arm is what reaches the
         // agency-less population -- 62.4% of ACA volume, all IIS access logs.
         const { query } = v2.build(
-            input({ environment: 'NONPROD1', applications: ['Citizen Access'] })
+            input({
+                environment: 'NONPROD1',
+                applications: ['Citizen Access', 'Civic Platform'],
+            })
         );
 
         expect(query).toContain('service:aca AND @agencycode:AGCY AND filename:*-nonprod1*');
         expect(query).toContain('service:aca AND *AGCY* AND filename:*-nonprod1*');
-        // ACA needs the biz tier as well.
+        // The biz tier is here because it was ticked, not because ACA dragged it
+        // in -- see the Citizen-Access-only test above.
         expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
     });
 
