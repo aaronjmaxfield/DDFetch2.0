@@ -350,11 +350,62 @@ describe('AppComponent engine modes', () => {
         expect(component.environment).toBe('TEST');
     });
 
-    it('renders no recent row until there is history', () => {
-        // Costs no height on a first run; +30px once populated.
-        component.recentSearches = [];
+    it('shows the recent menu only while the agency field has focus', () => {
+        // Reworked from a permanent chip row, which was correct but clutter for
+        // something you need once per session. Absolutely positioned, so it
+        // costs zero layout height either way.
+        component.recentSearches = [
+            { agency: 'CRC', host: 'US', environment: 'TEST', count: 9, lastUsed: 1 },
+        ];
         fixture.detectChanges();
-        expect(fixture.nativeElement.querySelector('.recent-chip')).toBeNull();
+        expect(fixture.nativeElement.querySelector('.recent-menu')).toBeNull();
+
+        component.onAgencyFocus();
+        fixture.detectChanges();
+        expect(fixture.nativeElement.querySelector('.recent-menu')).toBeTruthy();
+
+        component.onAgencyBlur();
+        fixture.detectChanges();
+        expect(fixture.nativeElement.querySelector('.recent-menu')).toBeNull();
+    });
+
+    it('filters the menu as you type, and closes when nothing matches', () => {
+        component.recentSearches = [
+            { agency: 'CRC', host: 'US', environment: 'TEST', count: 9, lastUsed: 2 },
+            { agency: 'CLARKCO', host: 'US', environment: 'PROD', count: 4, lastUsed: 1 },
+        ];
+        component.onAgencyFocus();
+        component.onAgencyInput('C');
+        expect(component.visibleRecent.length).toBe(2);
+
+        component.onAgencyInput('CR');
+        expect(component.visibleRecent.map((e) => e.agency)).toEqual(['CRC']);
+
+        // No match should not leave an empty box hanging under the field.
+        component.onAgencyInput('ZZZ');
+        expect(component.visibleRecent.length).toBe(0);
+        expect(component.showRecentMenu).toBe(false);
+    });
+
+    it('selection survives the blur that fires before a click', () => {
+        /*
+         * blur fires BEFORE click, so wiring selection to (click) tore the menu
+         * down before the handler could run. It is on (mousedown) with
+         * preventDefault instead, which is what this guards.
+         */
+        component.recentSearches = [
+            { agency: 'CRC', host: 'US', environment: 'TEST', count: 9, lastUsed: 1 },
+        ];
+        component.onAgencyFocus();
+        fixture.detectChanges();
+
+        const item = fixture.nativeElement.querySelector('.recent-item') as HTMLElement;
+        expect(item).toBeTruthy();
+        item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        fixture.detectChanges();
+
+        expect((el('inputEnvironment') as HTMLSelectElement).value).toBe('TEST');
+        expect(component.showRecentMenu).toBe(false);
     });
 
     it('hides the engine selector by default', () => {

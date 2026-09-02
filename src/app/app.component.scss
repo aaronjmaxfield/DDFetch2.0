@@ -421,54 +421,76 @@ label {
 }
 
 /* ---------------------------------------------------------------------------
-   Recently used agency/environment chips
+   Recent-agency menu
+   ---------------------------------------------------------------------------
+   Absolutely positioned inside the field wrapper, so it overlays the form
+   instead of displacing it -- the card measures the same with history as
+   without. Shown only while the input has focus.
+
+   This field sits near the top of the card, so the menu has room below it and
+   the card's `overflow: hidden` does not clip it. Do not reuse this pattern
+   lower down the form without checking that.
    --------------------------------------------------------------------------- */
-.recent-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+.agency-field {
+  position: relative;
 }
 
-.recent-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  margin-right: 2px;
-}
-
-/* Deliberately quiet. These are a shortcut, not a call to action -- at button
-   weight they would compete with Fetch. */
-.recent-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 2px 9px;
-  border-radius: 999px;
+.recent-menu {
+  position: absolute;
+  top: 100%;
+  left: 12px;
+  right: 12px;
+  z-index: 30;
+  margin: 3px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: #fff;
   border: 1px solid var(--brand-line);
-  background: var(--brand-tint);
-  color: var(--brand-dark);
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 8px;
+  box-shadow:
+    0 4px 10px rgba(0, 0, 0, 0.14),
+    0 12px 30px rgba(0, 0, 0, 0.2);
+
+  li {
+    margin: 0;
+  }
+}
+
+.recent-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
-  line-height: 1.6;
+  font-size: 13px;
 
-  &:hover {
-    border-color: var(--brand);
-    background: #fff;
-  }
-
+  &:hover,
   &:focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: 2px;
+    background: var(--brand-tint);
+    outline: none;
   }
+}
+
+.recent-agency {
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .recent-env {
   font-size: 11px;
-  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+/* Frequency, pushed right. It is the reason the order is what it is, so showing
+   it makes the ranking legible rather than arbitrary. */
+.recent-count {
+  margin-left: auto;
+  font-size: 10px;
   color: var(--ink-soft);
 }
 

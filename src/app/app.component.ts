@@ -84,7 +84,7 @@ export class AppComponent {
     this.activeBeginCalendarValue = beginTimestamp.toISOString().slice(0, 16);
     this.activeEndCalendarValue = endTimestamp.toISOString().slice(0, 16);
     this.readmeHidden = true;
-    this.recentSearches = this.recent.list();
+    this.recentSearches = this.recent.list(20);
   }
 
   toggleReadme() {
@@ -153,7 +153,7 @@ export class AppComponent {
      * agency/host/environment triple is stored -- never the scoped identifiers.
      */
     this.recent.record(this.servProvCode, this.host, this.environment);
-    this.recentSearches = this.recent.list();
+    this.recentSearches = this.recent.list(20);
 
     const input = this.buildQueryInput();
     const previews: QueryPreview[] = [];
@@ -392,10 +392,62 @@ export class AppComponent {
   }
 
   /**
-   * Up to three remembered agency/environment combinations, most useful first.
-   * Read once per change-detection pass rather than on every template binding.
+   * Everything remembered, most useful first. Read once per change-detection
+   * pass rather than on every template binding.
    */
   recentSearches: RecentSearch[] = [];
+
+  /**
+   * The recent-agency menu, shown only while the ServProvCode field has focus.
+   *
+   * A permanent chip row worked but was clutter: this is something you need once
+   * at the start of a session, not something to look at all day. Focus-triggered
+   * and absolutely positioned, so it costs ZERO layout height.
+   */
+  showRecentMenu = false;
+
+  /** Filtered by whatever has been typed so far, capped at four rows. */
+  visibleRecent: RecentSearch[] = [];
+
+  onAgencyFocus() {
+    this.refreshVisibleRecent(this.readInputValue('inputServProvCode'));
+    this.showRecentMenu = true;
+  }
+
+  onAgencyInput(value: string) {
+    this.servProvCode = value;
+    this.refreshVisibleRecent(value);
+    // Typing something with no match closes the menu rather than leaving an
+    // empty box hanging under the field.
+    this.showRecentMenu = this.visibleRecent.length > 0;
+  }
+
+  /*
+   * Blur fires BEFORE click, so closing here would destroy the menu item before
+   * its click could land -- which is why selection is wired to `mousedown` and
+   * calls preventDefault. This handler only covers tabbing or clicking away.
+   */
+  onAgencyBlur() {
+    this.showRecentMenu = false;
+  }
+
+  closeRecentMenu() {
+    this.showRecentMenu = false;
+  }
+
+  pickRecent(entry: RecentSearch, event?: Event) {
+    // preventDefault on mousedown stops the input blurring, so the menu is not
+    // torn down mid-selection.
+    event?.preventDefault();
+    this.applyRecent(entry);
+    this.showRecentMenu = false;
+  }
+
+  private refreshVisibleRecent(typed: string) {
+    const q = (typed ?? '').trim().toUpperCase();
+    const all = this.recentSearches;
+    this.visibleRecent = (q ? all.filter((e) => e.agency.startsWith(q)) : all).slice(0, 4);
+  }
 
   /**
    * Fill the whole triple from one click. The point of the feature is that

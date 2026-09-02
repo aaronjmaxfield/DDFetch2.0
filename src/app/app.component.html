@@ -124,9 +124,52 @@
 
         <!-- ServProvCode, Host, Environment -->
         <div class="row form-row">
-          <div class="col-md-4 mb-2">
+          <!--
+            ServProvCode, with its recent-agency menu.
+
+            The menu is absolutely positioned inside this wrapper, so it costs
+            ZERO layout height -- the card is 501px whether or not there is
+            history. It replaces a permanent chip row that was correct but too
+            busy for something you need once per session.
+
+            Safe from the card's `overflow: hidden` because this field sits near
+            the top: a three-row menu has plenty of room below it. That is not
+            true everywhere on this form, which is why the info tooltips needed
+            edge handling.
+          -->
+          <div class="col-md-4 mb-2 agency-field">
             <label for="inputServProvCode">ServProvCode</label>
-            <input type="text" class="form-control" id="inputServProvCode" required />
+            <input
+              type="text"
+              class="form-control"
+              id="inputServProvCode"
+              autocomplete="off"
+              required
+              (focus)="onAgencyFocus()"
+              (input)="onAgencyInput($any($event.target).value)"
+              (blur)="onAgencyBlur()"
+              (keydown.escape)="closeRecentMenu()"
+            />
+            @if (showRecentMenu && visibleRecent.length) {
+              <ul class="recent-menu" role="listbox" aria-label="Recently used agencies">
+                @for (r of visibleRecent; track r.agency + r.host + r.environment) {
+                  <li>
+                    <button
+                      type="button"
+                      role="option"
+                      [attr.aria-selected]="false"
+                      class="recent-item"
+                      (mousedown)="pickRecent(r, $event)"
+                      (keydown.enter)="pickRecent(r)"
+                    >
+                      <span class="recent-agency">{{ r.agency }}</span>
+                      <span class="recent-env">{{ r.host }} · {{ r.environment }}</span>
+                      <span class="recent-count">{{ r.count }}x</span>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
           </div>
 
           <div class="col-md-4 mb-2">
@@ -150,33 +193,6 @@
             </select>
           </div>
         </div>
-
-        <!--
-          Recently and frequently used agency/environment combinations.
-
-          One click fills all THREE fields, which is the point: ServProvCode,
-          Host and Environment are three separate actions that are almost always
-          the same three values. Renders nothing at all until there is history,
-          so it costs no height on a first run and ~26px thereafter.
-        -->
-        @if (recentSearches.length) {
-          <div class="row form-row form-row-tight">
-            <div class="col-md-12 recent-row">
-              <span class="recent-label">Recent</span>
-              @for (r of recentSearches; track r.agency + r.host + r.environment) {
-                <button
-                  type="button"
-                  class="recent-chip"
-                  [attr.aria-label]="'Use ' + r.agency + ' ' + r.host + ' ' + r.environment"
-                  (click)="applyRecent(r)"
-                >
-                  {{ r.agency }}
-                  <span class="recent-env">{{ r.host }} {{ r.environment }}</span>
-                </button>
-              }
-            </div>
-          </div>
-        }
 
         <!-- Timeframe and timestamps -->
         <div class="row form-row">
