@@ -85,6 +85,15 @@ export interface ScopeField {
   chatterExceptions?: string[];
   /** Chronic phrases to stop excluding while this field has a value. */
   chronicExceptions?: string[];
+  /**
+   * Keep `av.indexer` in the search while this field has a value.
+   *
+   * The indexer is excluded by default under any scope, which is right for most
+   * work -- but it carries 134,280 of the 152,909 lines a day that actually
+   * name a document, so a document-name search without it is fighting the scope
+   * it is running under.
+   */
+  keepIndexer?: boolean;
 }
 
 export interface ScopeOption {
@@ -452,7 +461,8 @@ const CATEGORIES: ScopeCategory[] = [
         'Preview fails while download still works',
       ],
       notes: [
-        'The ADS file key is NOT logged when a document is uploaded. Search the record ID, the document name, or the user name instead -- an upload records all three.',
+        'The ADS file key is NOT logged when a document is uploaded. Search the record ID or the user name instead -- an upload records both.',
+        'A back-office upload does not always record the file name either. If a document-name search returns nothing, that is not proof the upload failed -- fall back to the record ID.',
         'An environment does not necessarily file its documents under its own name. Check the "EDMS Config=" line: one test environment was posting to the SUPP server as CRC_SUPP, so searching its own agency code returned nothing at all.',
         'North American agencies are almost always on ADS and APAC agencies almost always on ACDS. If one returns nothing, try the other before concluding anything.',
         'ADS records what was requested, not whether it worked -- practically every line is an HTTP 200, and agency-scoped ADS searches return no errors at all by design.',
@@ -464,16 +474,31 @@ const CATEGORIES: ScopeCategory[] = [
         id: 'documentName',
         label: 'Document or file name',
         placeholder: 'MyDocument.pdf',
-        hint: 'Either the file name or the document name -- both are logged, on 6.7 million lines a day across the biz, ACA, indexer and ACDS tiers. Paste it exactly, including the extension.',
+        hint: 'Either the file name or the document name. Paste it exactly, including the extension. Not every upload path records it -- if this returns nothing, clear it and search the record ID instead.',
         /*
-         * Wildcard, not quoted, and measured rather than assumed. On a real
-         * multi-word name: `*workers comp exemption*` = 378 lines,
-         * `"workers comp exemption"` = 336, interleaved
-         * `*workers*comp*exemption*` = 286. Same ordering on a single token with
-         * an extension: `*Doc1.pdf*` = 6 against `"Doc1.pdf"` = 2. The quoted
-         * form UNDER-matches here, which is the opposite of the usual advice.
+         * Wildcard, not quoted, measured rather than assumed. On a real
+         * multi-word name the wildcard returns 364 lines against 324 quoted, and
+         * on a name with an extension 6 against 2 -- the quoted form
+         * UNDER-matches here, the opposite of the usual advice.
+         *
+         * HOW OFTEN IS A NAME ACTUALLY LOGGED. Corrected 2026-09-02, because the
+         * first answer was wrong by 44x. `*Document name:*` matches 6,710,385
+         * lines a day and `"Document name:"` only 152,909 -- the wildcard form
+         * was matching the tokens [document] and [name] ANYWHERE on a line, so
+         * `entityType=DOCUMENT ... tenantName=crc-test` counted as a document
+         * name. The real figures are 152,909 for a document name and 50,491 for
+         * a file name, per day, of which 134,280 sit in `av.indexer`.
+         *
+         * That is why `keepIndexer` is set below. It is also a reminder that a
+         * marker measured in wildcard form can be inflated an order of magnitude
+         * or more; measure both forms.
+         *
+         * And the name is NOT always recorded. A back-office upload traced on
+         * 2026-09-02 produced four evidence lines and none carried the file
+         * name -- searching it returned zero estate-wide. Hence the warning.
          */
         clause: (v) => `*${v.trim()}*`,
+        keepIndexer: true,
         warn: (v) =>
           v.trim().length < 6
             ? `"${v.trim()}" is short enough to match unrelated documents. Measured: a bare three-character name matched 2,830 lines in a day against 6 for the same name with its extension. Include the extension, or use the full name.`
@@ -972,11 +997,17 @@ export function activeScopeExtras(
   categoryId: string | undefined,
   optionId: string | undefined,
   values: Record<string, string> | undefined
-): { bizMarkers: string[]; chatterExceptions: string[]; chronicExceptions: string[] } {
+): {
+  bizMarkers: string[];
+  chatterExceptions: string[];
+  chronicExceptions: string[];
+  keepIndexer: boolean;
+} {
   const category = findCategory(categoryId);
   const bizMarkers: string[] = [];
   const chatterExceptions = [...(category?.chatterExceptions ?? [])];
   const chronicExceptions = [...(category?.chronicExceptions ?? [])];
+  let keepIndexer = false;
 
   if (values) {
     for (const field of fieldsFor(categoryId, optionId)) {
@@ -984,10 +1015,11 @@ export function activeScopeExtras(
       bizMarkers.push(...(field.bizMarkers ?? []));
       chatterExceptions.push(...(field.chatterExceptions ?? []));
       chronicExceptions.push(...(field.chronicExceptions ?? []));
+      if (field.keepIndexer) keepIndexer = true;
     }
   }
 
-  return { bizMarkers, chatterExceptions, chronicExceptions };
+  return { bizMarkers, chatterExceptions, chronicExceptions, keepIndexer };
 }
 
 /** Every field in play for the current selection, category-level then option-level. */

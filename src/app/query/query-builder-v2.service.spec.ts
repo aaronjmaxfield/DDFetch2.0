@@ -983,6 +983,27 @@ describe('QueryBuilderV2Service', () => {
             expect(query).not.toContain('"MyDocument.pdf"');
         });
 
+        it("keeps the indexer when a document name is given", () => {
+            /*
+             * The indexer is excluded by default under any scope, and it holds
+             * 134,280 of the 152,909 lines a day that actually name a document.
+             * So a name search without it was fighting its own scope.
+             *
+             * Also the correction that found this: `*Document name:*` matches
+             * 6,710,385 lines a day and `"Document name:"` only 152,909 -- the
+             * wildcard was matching [document] and [name] anywhere on a line, so
+             * `entityType=DOCUMENT ... tenantName=x` counted. The first
+             * justification for this field was inflated 44x.
+             */
+            const withName = v2.build(
+                input({ scope: { category: "documents", fields: { documentName: "MyDoc.pdf" } } })
+            ).query;
+            expect(withName).not.toContain("-service:av.indexer");
+
+            const without = v2.build(input({ scope: { category: "documents" } })).query;
+            expect(without).toContain("-service:av.indexer");
+        });
+
         it("warns when a document name is too short to be distinctive", () => {
             // A bare four-character name matched 2,830 lines in a day against 6
             // for the same name with its extension.

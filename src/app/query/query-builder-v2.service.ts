@@ -464,7 +464,19 @@ export class QueryBuilderV2Service implements QueryEngine {
      * dropping it unscoped would contradict the promise that an unscoped search
      * is complete -- it is 129,600 lines and 20 errors a day on LEECO.
      */
-    if (category && !input.includeIndexer) scopeParts.push('-service:av.indexer');
+    /*
+     * A field can ask to keep the indexer. The document-name field does: the
+     * indexer holds 134,280 of the 152,909 lines a day that actually name a
+     * document, so excluding it made a name search fight the scope it ran under.
+     */
+    const fieldWantsIndexer = activeScopeExtras(
+      input.scope?.category,
+      input.scope?.option,
+      input.scope?.fields
+    ).keepIndexer;
+    if (category && !input.includeIndexer && !fieldWantsIndexer) {
+      scopeParts.push('-service:av.indexer');
+    }
 
     /*
      * An option carrying its own `extraClause` scopes the ACA tier precisely, by
