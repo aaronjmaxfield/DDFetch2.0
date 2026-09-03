@@ -77,6 +77,12 @@ export interface EnvironmentDef {
    */
   pciEnv?: string[];
   /**
+   * `env:` values for `service:mol`, which uses a taxonomy shared with nothing
+   * else -- see molEnvClause. `undefined` means mol is not collected for this
+   * environment, and the engine warns rather than guessing.
+   */
+  molEnv?: string[];
+  /**
    * Exact @Properties.log.EnvName for CAPI.
    *
    * Note this is *not* interchangeable with the `env:` tag -- a single CAPI
@@ -169,11 +175,11 @@ export const HOSTS: HostDef[] = [
     usesJndi: true,
     capiRegionClause: usCapiClusters,
     environments: [
-      { ui: 'PROD', jndi: 'prod', hostClause: 'host:*mtprd*', civpEnv: 'civp_prod_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], capiEnvName: 'PROD', acaFilename: generic('prod') },
-      { ui: 'SUPP', jndi: 'supp', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'SUPP', acaFilename: generic('supp') },
+      { ui: 'PROD', jndi: 'prod', hostClause: 'host:*mtprd*', civpEnv: 'civp_prod_azure', platformEnv: ['prod'], pciEnv: ['prod-pci'], molEnv: ['prod-central'], capiEnvName: 'PROD', acaFilename: generic('prod') },
+      { ui: 'SUPP', jndi: 'supp', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], molEnv: ['preprod'], capiEnvName: 'SUPP', acaFilename: generic('supp') },
       // ASSUMPTION (civpEnv): no `civp_test_azure` tag exists. US TEST biz logs
       // may be one of the civp_int*_azure clusters; not resolved.
-      { ui: 'TEST', jndi: 'test', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'TEST', acaFilename: generic('test') },
+      { ui: 'TEST', jndi: 'test', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], molEnv: ['preprod'], capiEnvName: 'TEST', acaFilename: generic('test') },
       {
         ui: 'STG',
         jndi: 'stg',
@@ -187,10 +193,10 @@ export const HOSTS: HostDef[] = [
         acaFilename: generic('stg'),
       },
       // ASSUMPTION (civpEnv) for all four: no civp_nonprod{n}_azure tag exists.
-      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
-      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
-      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
-      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
+      { ui: 'NONPROD1', jndi: 'nonprod1', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], molEnv: ['preprod'], capiEnvName: 'NONPROD1', acaFilename: generic('nonprod1') },
+      { ui: 'NONPROD2', jndi: 'nonprod2', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], molEnv: ['preprod'], capiEnvName: 'NONPROD2', acaFilename: generic('nonprod2') },
+      { ui: 'NONPROD3', jndi: 'nonprod3', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], molEnv: ['preprod'], capiEnvName: 'NONPROD3', acaFilename: generic('nonprod3') },
+      { ui: 'NONPROD4', jndi: 'nonprod4', hostClause: usNonProdHost, civpEnv: 'civp_supp_azure', platformEnv: ['nonprod'], pciEnv: ['nonprod-pci', 'eng-arch-pci'], molEnv: ['preprod'], capiEnvName: 'NONPROD4', acaFilename: generic('nonprod4') },
       // CORRECTED: the jndi token is `civcon`, not `cvcn`. `@JNDI:*cvcn*` matches
       // ZERO events estate-wide; `@JNDI:*civcon*` matches 112,629,484 over 7d.
       // For one real agency this was a 25x loss -- only the @SERV_PROV_CODE arm
@@ -335,6 +341,33 @@ const pciEnvClause: EnvClause = (env) =>
     : undefined;
 
 /**
+ * `service:mol` -- a SIXTH env taxonomy, and the reason this needs its own
+ * clause rather than reusing `platformEnvClause`.
+ *
+ * Measured over 8 days: `prod-central` 11,202,657, `preprod` 216,993, `perf`
+ * 89,921, `dev` 16,469. None of `prod`, `nonprod`, `stg` or any civp value
+ * appears, so every existing clause returns zero against it.
+ *
+ * The mapping is derived from which agencies appear where, not guessed:
+ *   prod-central -- fdny 995,704, mecklenburg 754,367, ljcmg 433,607,
+ *                   denver 382,269, pasco 307,817, okc 257,041, acfw 222,831
+ *                   -- all US production tenants.
+ *   preprod      -- qa-intg-stdtest2019 107,597, arch-stdtestauto 19,320,
+ *                   detroit 8,926, sandiego 730, seattle 651, evanston 137
+ *                   -- test rigs and US non-production tenants.
+ *
+ * No regional variant exists, so AU, Canada and Oregon are deliberately left
+ * unmapped and get the standard "not collected here" warning instead of a
+ * clause that would silently return another region's data.
+ */
+const molEnvClause: EnvClause = (env) =>
+  env.molEnv?.length
+    ? env.molEnv.length > 1
+      ? `env:(${env.molEnv.join(' OR ')})`
+      : `env:${env.molEnv[0]}`
+    : undefined;
+
+/**
  * Paypal UI tags every log with `azure{cluster}-{agency}-{env}`, so its env tag
  * already carries the agency. That makes it the only service where one clause
  * covers both scopes.
@@ -403,7 +436,7 @@ export interface ServiceDef {
   /** Checkbox label. */
   ui: string;
   /** Grouping used to enforce "pick only one". */
-  category: 'payment' | 'document';
+  category: 'payment' | 'document' | 'gis';
   targets: ServiceTarget[];
 }
 
@@ -662,15 +695,79 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
     ],
   },
   {
+    /*
+     * -------------------------------------------------------------------------
+     * MAP SERVICE (service:mol) -- previously unreachable at every setting.
+     * Added 2026-09-02.
+     * -------------------------------------------------------------------------
+     * 11.5M lines and 836,295 ERRORS over 8 days, in no service table, so the
+     * tool could not return one of them. Measured status split: info
+     * 10,689,317, error 836,295, warn 428 -- a 7.3% error rate, which is the
+     * highest of any service in these tables by an order of magnitude.
+     *
+     * Worth the entry because of the SHAPE of its lines, not just the volume.
+     * One line carries the record, the parcel, the row count, the duration and
+     * the agency together:
+     *
+     *   API Call to /v4/batch (/v4/parcels/04704452/conditions?limit=1000 : 1)
+     *   took 505ms : traceId=... : agency=mecklenburg
+     *
+     * Nothing else in the estate packages a GIS call that way.
+     *
+     * TWO shapes here are unlike every other service, and getting either wrong
+     * produces a silent zero:
+     *
+     * 1. The env taxonomy is its own -- see molEnvClause. `env:prod` is 0.
+     * 2. The agency facet is LOWER-CASE `@agency` with LOWER-CASE values.
+     *    Measured: `@agency:mecklenburg` = 754,367 and `@Agency:*mecklenburg*`
+     *    = 0. The generic agency scope emits the second form plus four others
+     *    that do not exist here, so `agencyScope: 'attributes'` would have
+     *    matched nothing. Hence the explicit clause.
+     */
+    ui: 'Map Service',
+    category: 'gis',
+    targets: [
+      {
+        field: 'service',
+        values: ['mol'],
+        envClause: molEnvClause,
+        agencyScope: 'attributes',
+        agencyClause: (_upper, lower) => `@agency:${lower}`,
+        note: 'The map service records the agency in lower case only, and uses its own environment names, so both filters are shaped differently from every other service here. It is high volume and genuinely error-heavy -- about 7% of its lines are errors, mostly geocoding -- so expect real failures rather than noise. It is only collected for US environments; other regions return nothing.',
+      },
+    ],
+  },
+  {
     ui: 'ACDS',
     category: 'document',
     targets: [
       {
         // CONFIRMED: both carry @SERV_PROV_CODE, and env is civp_{jndi}_azure.
+        /*
+         * ACDS IS AN APAC SERVICE. Measured 2026-09-02 over 8 days:
+         *
+         *   civp_auprod_azure   1,793,322
+         *   civp_int3_azure       417,342
+         *   civp_ausupp_azure     113,537
+         *   civp_supp_azure        35,188
+         *   civp_prod_azure        18,785
+         *   civp_austg_azure        8,181
+         *   civp_stg_azure          3,554
+         *
+         * AU production alone is 99x US production. Canada and Oregon do not
+         * appear at all. The earlier note recorded this as "APAC in production"
+         * and left the consequence unstated: a North American ticket pointed at
+         * ACDS returns a thin set, and a Canadian or Oregon one returns nothing,
+         * both of which read as "no document activity happened".
+         *
+         * Not gated by region, deliberately -- US is thin but real (18,785
+         * lines), so a guard would delete data. Announced instead.
+         */
         field: 'service',
         values: ['acds', 'edms-handler'],
         envClause: civpEnvClause,
         agencyScope: 'attributes',
+        note: 'ACDS is used almost entirely in Asia-Pacific: Australian production carries about 99 times the volume of US production, and Canada and Oregon record none at all. So a thin or empty ACDS result outside APAC is expected and does not mean nothing happened -- if this is a North American agency, the document activity you want is probably on ADS or the standard EDMS path instead.',
       },
     ],
   },
@@ -682,9 +779,29 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
         field: 'service',
         values: ['av.ads'],
         envClause: civpEnvClause,
-        // CONFIRMED: @SERV_PROV_CODE exists on av.ads but is always empty.
+        /*
+         * RE-MEASURED 2026-09-02 over 8 days, 8.19M lines. The 'none' is right
+         * and the note was not saying enough.
+         *
+         *   @agencyCode      ZERO buckets
+         *   @SERV_PROV_CODE  present, 168,679 lines, value always EMPTY
+         *   filename         cfmx-access.log 7,897,473 / server.log 291,450
+         *   status           info 8,184,415 / warn 4,265 / error 244
+         *
+         * The access log is 96% of the service and contains no agency anywhere
+         * -- a representative line is
+         * `127.0.0.1 [02/Sep/2026:15:59:58 -0500] 0.002 GET
+         * /DocumentServiceAdmin/login/index.cfm HTTP/1.1 200 1346` -- so there
+         * is nothing to match on, not even in free text. This is the one target
+         * where the free-text trick that rescued emse.log cannot work.
+         *
+         * And every one of the 4,509 error/warn lines is in server.log, which
+         * carries no agency either. So "scope ADS to my agency and look for
+         * errors" cannot succeed by construction. That has to be SAID, because
+         * the search returns thousands of rows and looks like it worked.
+         */
         agencyScope: 'none',
-        note: 'ADS logs carry no populated agency field, so they are returned for the whole environment rather than just this agency.',
+        note: 'ADS records no agency at all -- not in a field, and not in the message text either, so these results are for the WHOLE environment and include every agency on it. Do not read them as this agency\'s activity. Note also that all of the ADS errors and warnings are in one file that carries no agency, so narrowing an ADS search to one agency and looking for errors cannot work; find the failing document another way, then use these lines for detail.',
       },
     ],
   },

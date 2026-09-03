@@ -403,6 +403,27 @@ describe('AppComponent (characterization)', () => {
         expect(component.rawMode).toBe(false);
     });
 
+    it('states the window it is about to search, in local time and UTC', () => {
+        /*
+         * A real search came back empty and was reported as the feature being
+         * broken; the window had ended six minutes before the event. Nothing in
+         * the UI said what window was being searched, so there was nothing to
+         * check. UTC is shown too because the inputs are browser-local.
+         */
+        setText('inputServProvCode', 'TESTAGCY');
+        setHost('US');
+        setEnvironment('PROD');
+        setValidWindow();
+        submit();
+        // The component is OnPush and submit() does not run change detection.
+        fixture.detectChanges();
+
+        const note = fixture.nativeElement.querySelector('.window-note')?.textContent ?? '';
+        expect(note).toContain('Searching');
+        expect(note).toContain('UTC');
+        expect(component.searchWindowUtc).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} to /);
+    });
+
     it('names every missing required field in one alert', () => {
         check('civicPlatformCheckbox');
         setValidWindow();

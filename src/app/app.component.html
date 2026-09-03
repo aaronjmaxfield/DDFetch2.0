@@ -671,6 +671,21 @@
           <div class="row form-row">
             <div class="col-md-12">
               <label><strong>Generated Query</strong></label>
+              <!--
+                The window being searched, stated rather than assumed.
+
+                Added because a real search came back empty and read as "this
+                feature is broken", when the window had ended six minutes before
+                the event. The timestamp inputs are browser-local, so two people
+                typing the same clock time in different timezones get different
+                searches -- which is why UTC is shown alongside.
+              -->
+              @if (searchWindowLabel) {
+                <p class="window-note">
+                  Searching <strong>{{ searchWindowLabel }}</strong> ({{ searchWindowUtc }}).
+                  Nothing outside this window can be returned, however good the query is.
+                </p>
+              }
               @for (p of previews; track p.engine) {
                 <div class="query-preview" [class.query-preview-legacy]="p.engine === 'legacy'">
                   <div class="query-preview-head">

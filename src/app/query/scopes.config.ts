@@ -791,7 +791,23 @@ const CATEGORIES: ScopeCategory[] = [
         clause: (v) => `("Map Service: ${v.trim()}" OR *MapService*${v.trim()}*)`,
       },
     ],
-    options: [],
+    options: [
+      {
+        /*
+         * The only way to reach `service:mol` from the UI, since the additional-
+         * service checkboxes are hidden and options are what contribute
+         * services now.
+         *
+         * An option rather than an always-on target for the category, because
+         * mol is 11.5M lines over 8 days: adding it to every GIS search would
+         * dwarf the biz tier it sits beside. As an option it is opt-in, and the
+         * 836,295 errors it holds become reachable for the first time.
+         */
+        id: 'mapService',
+        label: 'Map service (geocoding, parcel lookups)',
+        serviceUi: 'Map Service',
+      },
+    ],
   },
   {
     id: 'emse',

@@ -73,6 +73,39 @@ export class AppComponent {
   /** Populated on submit; drives the preview panel. */
   previews: QueryPreview[] = [];
 
+  /*
+   * -------------------------------------------------------------------------
+   * THE WINDOW, STATED IN THE RESULT
+   * -------------------------------------------------------------------------
+   * A real search came back empty and was reported as the feature being
+   * broken. The query was fine; the window ended six minutes before the event.
+   * Nothing in the UI said what window was about to be searched, so there was
+   * nothing to check.
+   *
+   * UTC is shown alongside local because the timestamp inputs are
+   * browser-local: two people typing the same clock time in different
+   * timezones get different searches, and the second one has no way to know.
+   */
+  get searchWindowLabel(): string {
+    if (!this.beginTimestamp || !this.endTimestamp) return '';
+    const fmt = (ms: number) =>
+      new Date(ms).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    const mins = Math.round((this.endTimestamp - this.beginTimestamp) / 60000);
+    const span = mins >= 120 ? `${Math.round(mins / 60)}h` : `${mins}m`;
+    return `${fmt(this.beginTimestamp)} to ${fmt(this.endTimestamp)} (${span})`;
+  }
+
+  get searchWindowUtc(): string {
+    if (!this.beginTimestamp || !this.endTimestamp) return '';
+    const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+    return `${fmt(this.beginTimestamp)} to ${fmt(this.endTimestamp)} UTC`;
+  }
+
   constructor(
     private legacyEngine: LegacyQueryBuilderService,
     private v2Engine: QueryBuilderV2Service,

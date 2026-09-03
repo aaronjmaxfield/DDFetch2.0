@@ -834,6 +834,45 @@ describe('QueryBuilderV2Service', () => {
         expect(warnings.some((w) => w.includes('more than one provider id'))).toBe(false);
     });
 
+    // ------------------------------------------------------- mol / Map Service
+
+    it('reaches service:mol, which was in no service table at all', () => {
+        /*
+         * 11.5M lines and 836,295 errors over 8 days that the tool could not
+         * return one of. Two shapes here are unlike every other service and
+         * either one wrong produces a silent zero:
+         *   - its own env taxonomy: prod-central 11,202,657, preprod 216,993.
+         *     `env:prod` is 0.
+         *   - lower-case @agency with lower-case values: @agency:mecklenburg
+         *     754,367 against @Agency:*mecklenburg* = 0.
+         * Verified live after this change: 754,367 lines and 19,898 errors.
+         */
+        const { query } = v2.build(
+            input({ scope: { category: 'gis', option: 'mapService' }, applications: [] })
+        );
+
+        expect(query).toContain('service:mol AND env:prod-central AND @agency:agcy');
+        // The generic six-facet shape would have matched nothing here.
+        expect(query).not.toContain('@Agency:*AGCY*');
+        expect(query).not.toContain('@agencycode');
+    });
+
+    it('warns rather than guessing where mol is not collected', () => {
+        // Only the US rows have measured mol data. No regional variant exists,
+        // so AU must not silently borrow the US clause.
+        const { query, warnings } = v2.build(
+            input({
+                host: 'AU',
+                environment: 'PROD',
+                applications: [],
+                scope: { category: 'gis', option: 'mapService' },
+            })
+        );
+
+        expect(query).not.toContain('env:prod-central');
+        expect(warnings.length).toBeGreaterThan(0);
+    });
+
     it('A13: excludes the Payrix stub service, which logs no payment content', () => {
         /*
          * Added and removed the same day. Its 13% "error rate" is container
