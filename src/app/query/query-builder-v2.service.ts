@@ -84,7 +84,22 @@ export class QueryBuilderV2Service implements QueryEngine {
     const capi = this.buildCapiBranch(input, host, env, agency, warnings);
     if (capi) branches.push(capi);
 
-    const svc = this.buildServiceBranch(services, env, agency, warnings);
+    const svc = this.buildServiceBranch(
+      services,
+      env,
+      agency,
+      warnings,
+      /*
+       * A typed identifier scopes the search better than the agency facet does,
+       * and roughly half the adapter's lines have no agency facet at all.
+       *
+       * Excluded in raw mode, and that is not an oversight: raw drops the scope
+       * field clauses, so the identifier that justifies relaxing would not be in
+       * the query. Relaxing without it is the unaffordable case -- 12,703 lines
+       * to 40,782 on the busiest Forte agency.
+       */
+      input.rawMode !== true && this.hasPreciseIdentifier(input)
+    );
     if (svc) branches.push(svc);
 
     if (!branches.length) {
@@ -929,11 +944,28 @@ export class QueryBuilderV2Service implements QueryEngine {
    * terms, and anything that cannot be scoped says so in a warning instead of
    * emitting a clause that matches nothing.
    */
+  /**
+   * True when the user has typed a precise identifier -- a CAP ID, a transaction
+   * id, a document name -- as opposed to only narrowing attributes.
+   *
+   * `filter: true` fields are excluded deliberately: a record type or a
+   * scheduled date narrows a population, it does not identify one event, so it
+   * cannot stand in for the agency filter the way an identifier can.
+   */
+  private hasPreciseIdentifier(input: QueryInput): boolean {
+    const values = input.scope?.fields;
+    if (!values) return false;
+    return fieldsFor(input.scope?.category, input.scope?.option).some(
+      (f) => !f.filter && (values[f.id] ?? '').trim() !== ''
+    );
+  }
+
   private buildServiceBranch(
     services: ServiceDef[],
     env: EnvironmentDef,
     agency: string,
-    warnings: string[]
+    warnings: string[],
+    relaxAgency = false
   ): string {
     if (!services.length) return '';
 
@@ -950,9 +982,22 @@ export class QueryBuilderV2Service implements QueryEngine {
       if (seen.has(key)) continue;
       seen.add(key);
 
-      const branch = this.buildTargetBranch(target, env, agency, lower, unscopedByEnv);
+      const branch = this.buildTargetBranch(
+        target,
+        env,
+        agency,
+        lower,
+        unscopedByEnv,
+        relaxAgency
+      );
       if (branch) branches.push(branch);
       if (target.note) notes.add(target.note);
+    }
+
+    if (relaxAgency) {
+      warnings.push(
+        'Because you gave a specific identifier, the adapter logs are no longer required to name the agency -- roughly half of them do not, including the line that records the amount and the record being paid. The identifier is doing the filtering instead, so anything returned still concerns what you searched for.'
+      );
     }
 
     if (unscopedByEnv.length) {
@@ -971,7 +1016,8 @@ export class QueryBuilderV2Service implements QueryEngine {
     env: EnvironmentDef,
     agency: string,
     agencyLower: string,
-    unscopedByEnv: string[]
+    unscopedByEnv: string[],
+    relaxAgency = false
   ): string {
     // service:(a OR b) rather than service:a OR service:b -- the grouped form
     // is Datadog's documented pattern for multiple values of one field.
@@ -997,7 +1043,7 @@ export class QueryBuilderV2Service implements QueryEngine {
       // below. See ServiceTarget.agencyClause.
       clauses.push(target.agencyClause(agency.toUpperCase(), agency.toLowerCase()));
     } else if (target.agencyScope === 'attributes') {
-      clauses.push(this.agencyScopeForServices(agency, target.agencyFacets));
+      clauses.push(this.agencyScopeForServices(agency, target.agencyFacets, relaxAgency));
     } else if (target.agencyScope === 'freetext') {
       // The agency is inside an unparsed message body, so there is no facet to
       // filter on. Free-text matching is case insensitive -- unlike facets --
@@ -1026,9 +1072,45 @@ export class QueryBuilderV2Service implements QueryEngine {
    * payment-adapter-service query confirmed they do, and that facet values are
    * case sensitive, so both are needed.
    */
-  private agencyScopeForServices(agency: string, only?: string[]): string {
+  private agencyScopeForServices(agency: string, only?: string[], relax = false): string {
     const upper = agency.toUpperCase();
     const lower = agency.toLowerCase();
+
+    /*
+     * -------------------------------------------------------------------------
+     * NEARLY HALF THE ADAPTER'S LINES CARRY NO AGENCY AT ALL.
+     * Added 2026-09-03 from a real SCOTTCOUNTYMN failure.
+     * -------------------------------------------------------------------------
+     * Measured on service:payment-adapter-service over 7 days estate-wide,
+     * lines with no @SERV_PROV_CODE:
+     *
+     *   ALL lines                   339,197 of 735,378   46.1%
+     *   `Request:` amount/purpose    10,502 of  16,121   65.1%
+     *   `transaction-id`             26,193 of  94,902   27.6%
+     *   `received webhook response`     276 of   9,920    2.8%
+     *   `provider-tx-id`                  0 of  11,287    0.0%
+     *
+     * So the agency filter silently removes two thirds of the initiation lines
+     * -- the ones carrying the amount and the record being paid. On the case
+     * that found this, the adapter arm returned 15 lines and NEITHER of the two
+     * that named the record: the initiation (`subTotal: 203.5`, `purpose:
+     * REC26-00000-000DQ`, card reader V400C) or `received webhook response`.
+     * Both are facet-less. The search returned 5 lines and could not show that
+     * the money moved.
+     *
+     * `relax` is deliberately CONDITIONAL on the user having typed a precise
+     * identifier, because unconditional relaxation is unaffordable: the
+     * facet-less population belongs to every agency on the cluster, and on the
+     * busiest Forte agency it takes a 24h search from 12,703 lines to 40,782.
+     *
+     * With an identifier it costs nothing, because the identifier is doing the
+     * filtering: on the measured case the arm went from 0 lines to 2, and those
+     * 2 were the initiation and the webhook.
+     */
+    if (relax) {
+      const base = this.agencyScopeForServices(agency, only);
+      return `(${base.replace(/^\(|\)$/g, '')} OR -@SERV_PROV_CODE:*)`;
+    }
 
     /*
      * A target can name the facets it actually has. Measured on

@@ -834,6 +834,80 @@ describe('QueryBuilderV2Service', () => {
         expect(warnings.some((w) => w.includes('more than one provider id'))).toBe(false);
     });
 
+    // ------------------------------------ facet-less adapter lines
+
+    it('stops requiring an agency facet on the adapter once an identifier is typed', () => {
+        /*
+         * From a real SCOTTCOUNTYMN failure. Measured on
+         * service:payment-adapter-service over 7 days, lines with NO
+         * @SERV_PROV_CODE: 46.1% of everything (339,197 of 735,378) and 65.1%
+         * of the `Request:` lines that carry the amount and the record being
+         * paid (10,502 of 16,121).
+         *
+         * On that case the adapter arm returned 15 lines and neither of the two
+         * naming the record -- the initiation and `received webhook response`,
+         * both facet-less -- so the search could not show that the money moved.
+         * Relaxed, the arm went from 0 lines to exactly those 2.
+         */
+        const { query, warnings } = v2.build(
+            input({
+                scope: {
+                    category: 'payment',
+                    option: 'forte',
+                    fields: { capId: '26ABC-00000-00001' },
+                },
+            })
+        );
+
+        expect(query).toContain('OR -@SERV_PROV_CODE:*)');
+        expect(warnings.some((w) => w.includes('no longer required to name the agency'))).toBe(
+            true
+        );
+    });
+
+    it('keeps requiring the agency facet when nothing identifies the event', () => {
+        /*
+         * The other half, and the reason this is conditional. The facet-less
+         * population belongs to every agency on the cluster: unconditional
+         * relaxation takes a 24h search on the busiest Forte agency from 12,703
+         * lines to 40,782.
+         */
+        const { query, warnings } = v2.build(
+            input({ scope: { category: 'payment', option: 'forte' } })
+        );
+
+        expect(query).not.toContain('OR -@SERV_PROV_CODE:*)');
+        expect(warnings.some((w) => w.includes('no longer required to name the agency'))).toBe(
+            false
+        );
+    });
+
+    it('does not relax on a narrowing attribute, only on an identifier', () => {
+        // A map service name narrows a population; it does not identify one
+        // event, so it cannot stand in for the agency filter.
+        const { query } = v2.build(
+            input({
+                additionalServices: ['Forte'],
+                scope: { category: 'gis', fields: { mapService: 'AGENCYGIS' } },
+            })
+        );
+        expect(query).not.toContain('OR -@SERV_PROV_CODE:*)');
+    });
+
+    it('does not relax in raw mode, where the identifier clause is gone', () => {
+        const { query } = v2.build(
+            input({
+                rawMode: true,
+                scope: {
+                    category: 'payment',
+                    option: 'forte',
+                    fields: { capId: '26ABC-00000-00001' },
+                },
+            })
+        );
+        expect(query).not.toContain('OR -@SERV_PROV_CODE:*)');
+    });
+
     // ------------------------------------------------------- mol / Map Service
 
     it('reaches service:mol, which was in no service table at all', () => {
