@@ -241,9 +241,14 @@
               </select>
             </div>
 
-            <div class="col-md-4 mb-2">
+            <!-- col-md-8 so the row fills the card width, matching the
+                 ServProvCode / Host / Environment row above it. -->
+            <div class="col-md-8 mb-2">
               <label for="rangeToggleBtn">Time range</label>
               <div class="range-field">
+                <!-- The chevron is a background image rather than a glyph, so
+                     it is the same artwork, size and position as the selects
+                     use. A text caret could not be made to match them. -->
                 <button
                   type="button"
                   id="rangeToggleBtn"
@@ -253,7 +258,6 @@
                   (click)="toggleRangeOpen()"
                 >
                   <span>{{ rangeSummary }}</span>
-                  <span class="caret" aria-hidden="true">&#9662;</span>
                 </button>
 
                 @if (rangeOpen) {
@@ -303,29 +307,13 @@
                         }
                       </div>
 
-                      <p class="range-hint">
-                        Click a day for that whole day. Click a second, later day to extend across
-                        both -- that closes the picker.
-                      </p>
-
                       <!--
-                        The time controls were already here and were hard to
-                        find, because completing a range closes the popover
-                        before they are noticed. Given a heading of their own so
-                        they read as a step rather than as leftovers beside the
-                        button.
-
-                        Deliberately NOT a list of time presets. That is where
-                        this gets busy, and two fields plus a reset covers every
-                        case that has come up.
+                        No hint text and no "Time of day" heading: both were
+                        dropped as noise once the popover was actually visible.
+                        Click-a-day / click-again-to-extend turns out to be
+                        self-evident, and two labelled time fields do not need
+                        announcing.
                       -->
-                      <div class="range-time-head">
-                        <span>Time of day</span>
-                        <button type="button" class="linky" (click)="resetTimesToWholeDay()">
-                          Whole day
-                        </button>
-                      </div>
-
                       <div class="range-times">
                         <label>
                           From

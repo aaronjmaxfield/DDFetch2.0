@@ -24,10 +24,12 @@ describe('AppComponent (characterization)', () => {
 
     beforeEach(async () => {
         /*
-         * The component reads two things from localStorage on init -- recent
-         * searches and the range-picker preference -- so leftover state leaks
-         * between tests. It bit immediately: one test toggling the range picker
-         * removed the timestamp inputs from the DOM for every test after it.
+         * The component reads recent searches from localStorage on init, so
+         * leftover state leaks between tests. Added while a range-picker
+         * preference was also stored: one test toggling that editor removed the
+         * timestamp inputs from the DOM for every test after it. The preference
+         * is gone -- the picker is the only editor now -- but the recent
+         * searches remain, and the isolation is worth keeping either way.
          */
         localStorage.clear();
 
@@ -606,32 +608,8 @@ describe('AppComponent (characterization)', () => {
             expect(component.activeEndCalendarValue).toBe('2026-08-25T23:59');
         });
 
-        it('restores the whole day without touching the dates', () => {
-            /*
-             * Narrowing the time is the common edit -- find the day, cut to the
-             * minutes -- so undoing it needs to be one click rather than
-             * retyping 00:00 and 23:59.
-             */
-            component.activeBeginCalendarValue = '2026-07-27T09:18';
-            component.activeEndCalendarValue = '2026-07-29T09:25';
-
-            component.resetTimesToWholeDay();
-
-            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
-            expect(component.activeEndCalendarValue).toBe('2026-07-29T23:59');
-        });
-
-        it('still clamps to now when the whole-day reset lands on today', () => {
-            component.activeBeginCalendarValue = '2026-08-27T09:00';
-            component.activeEndCalendarValue = '2026-08-27T09:30';
-
-            component.resetTimesToWholeDay();
-
-            expect(component.activeBeginCalendarValue).toBe('2026-08-27T00:00');
-            expect(component.activeEndCalendarValue).not.toBe('2026-08-27T23:59');
-            expect(component.activeEndCalendarValue.startsWith('2026-08-27T14:3')).toBe(true);
-        });
-
+        
+        
         it('keeps the time controls reachable after a range completes', () => {
             /*
              * The tension between "close when I select my dates" and editing

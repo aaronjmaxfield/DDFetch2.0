@@ -615,22 +615,13 @@ export class AppComponent {
     this.previews = [];
   }
 
-  /**
-   * Back to the full span of the chosen days.
-   *
-   * Worth a button because narrowing the time is the common edit -- find the
-   * day, then cut to the minutes -- and undoing it otherwise means retyping
-   * 00:00 and 23:59 from memory. Keeps the dates exactly as they are, and
-   * clamps to now if the last day is today.
+  /*
+   * A "Whole day" reset lived here and was removed the same day it was added,
+   * along with the "Time of day" heading above the time fields -- both were
+   * noise once the popover was actually visible rather than clipped. Re-picking
+   * the day gives the whole day back, so the button was a shortcut for
+   * something already one click away.
    */
-  resetTimesToWholeDay() {
-    const startDay = this.activeBeginCalendarValue.slice(0, 10);
-    const endDay = this.activeEndCalendarValue.slice(0, 10);
-    if (!startDay || !endDay) return;
-    this.activeBeginCalendarValue = `${startDay}T00:00`;
-    this.activeEndCalendarValue = this.endOfDay(endDay);
-    this.previews = [];
-  }
 
   get rangeEndTime(): string {
     return this.activeEndCalendarValue.slice(11, 16) || '23:59';
