@@ -834,6 +834,75 @@ describe('QueryBuilderV2Service', () => {
         expect(warnings.some((w) => w.includes('more than one provider id'))).toBe(false);
     });
 
+    // ------------------------------------------------------- clause ordering
+
+    describe('clause order', () => {
+        /*
+         * Requested after a real session: "CAPID is so deeply nested in this
+         * it's hard to find". The workflow is to search with an identifier,
+         * find the window, then delete the identifier and look at everything
+         * around it -- so that edit has to be at the end of the string.
+         *
+         * Pinned because every other assertion in this file uses toContain,
+         * which would not notice the identifier being reburied.
+         */
+        function orderOf(query: string) {
+            return {
+                exclusions: query.indexOf('-"Request URL:https"'),
+                identity: query.indexOf('@JNDI:'),
+                provider: query.indexOf('@PROVIDER:'),
+                identifier: query.indexOf('26ABC-00000-00001'),
+            };
+        }
+
+        it('puts exclusions first, identity next, and the typed identifier last', () => {
+            const { query } = v2.build(
+                input({
+                    scope: {
+                        category: 'payment',
+                        option: 'forte',
+                        fields: { capId: '26ABC-00000-00001' },
+                    },
+                })
+            );
+            const at = orderOf(query);
+
+            expect(at.exclusions).toBeGreaterThanOrEqual(0);
+            expect(at.exclusions).toBeLessThan(at.identity);
+            expect(at.identity).toBeLessThan(at.provider);
+            expect(at.provider).toBeLessThan(at.identifier);
+            // Dead last, so it is the easiest thing in the string to delete.
+            expect(query.endsWith('*26ABC-00000-00001*')).toBe(true);
+        });
+
+        it('keeps additional parameters ahead of the scope identifier', () => {
+            // Both are the user's own, but the scope field is the one they come
+            // back to remove.
+            const { query } = v2.build(
+                input({
+                    additionalParams: 'NullPointerException',
+                    scope: {
+                        category: 'payment',
+                        option: 'forte',
+                        fields: { capId: '26ABC-00000-00001' },
+                    },
+                })
+            );
+            expect(query.indexOf('NullPointerException')).toBeLessThan(
+                query.indexOf('26ABC-00000-00001')
+            );
+        });
+
+        it('joins every fragment with an explicit AND', () => {
+            // Implicit AND works in Datadog but does not survive copy-paste into
+            // a smaller query as reliably.
+            const { query } = v2.build(
+                input({ scope: { category: 'payment', option: 'forte' } })
+            );
+            expect(query).not.toMatch(/\)\s+\(/);
+        });
+    });
+
     // ------------------------------------ facet-less adapter lines
 
     it('stops requiring an agency facet on the adapter once an identifier is typed', () => {

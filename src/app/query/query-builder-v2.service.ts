@@ -131,7 +131,43 @@ export class QueryBuilderV2Service implements QueryEngine {
       );
     }
 
-    let query = branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];
+    const identityGroup = branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];
+
+    /*
+     * -------------------------------------------------------------------------
+     * CLAUSE ORDER IS FOR THE READER, NOT THE ENGINE
+     * -------------------------------------------------------------------------
+     * The query is assembled into four groups and joined at the end:
+     *
+     *   1. exclusions  -- the noise removal. Long, identical on every search,
+     *                     and never edited by hand.
+     *   2. identity    -- which tiers and services, i.e. the substance.
+     *   3. scoping     -- what the chosen scope adds: the provider filter and
+     *                     any option clause.
+     *   4. typed       -- what the USER put in the form. Last, and the scope
+     *                     fields last of all.
+     *
+     * Requested after a real session: "CAPID is so deeply nested in this it's
+     * hard to find". It was third of seven fragments, in the middle of a
+     * 2,500-character string, and the normal workflow is to run a search with
+     * an identifier, find the time window, then delete the identifier and look
+     * at everything around it. That edit should be at the end where it can be
+     * found, not buried.
+     *
+     * SAFE, and verified rather than assumed. Datadog's AND is commutative and
+     * associative, and every fragment here is either a single term or already
+     * parenthesised, so no reordering can change how it groups. Measured on the
+     * real SCOTTCOUNTYMN query: the current order, the new order, and the new
+     * order using implicit AND all return exactly 7 lines. A query that STARTS
+     * with a negation is also fine -- 3,274 lines on the same window -- and
+     * there is always a positive term later regardless.
+     *
+     * Explicit `AND` is kept between fragments rather than relying on the
+     * implicit form, because it survives copy-paste into a smaller query.
+     */
+    const exclusions: string[] = [];
+    const scoping: string[] = [];
+    const typed: string[] = [];
 
     /*
      * -------------------------------------------------------------------------
@@ -155,9 +191,7 @@ export class QueryBuilderV2Service implements QueryEngine {
      * adapter at once.
      */
     if (!raw) {
-      for (const clause of this.buildScopeClauses(input, env, agency, warnings)) {
-        query = `${query} AND ${clause}`;
-      }
+      typed.push(...this.buildScopeClauses(input, env, agency, warnings));
     }
 
     if (!raw && scopeOption?.providerUrn) {
@@ -176,7 +210,7 @@ export class QueryBuilderV2Service implements QueryEngine {
         ? scopeOption.providerUrn
         : [scopeOption.providerUrn];
       const providerClause = urns.map((u) => `@PROVIDER:"${u}"`).join(' OR ');
-      query = `${query} AND (${providerClause} OR -@PROVIDER:*)`;
+      scoping.push(`(${providerClause} OR -@PROVIDER:*)`);
 
       if (urns.length > 1) {
         warnings.push(
@@ -205,11 +239,16 @@ export class QueryBuilderV2Service implements QueryEngine {
      * category's markers instead.
      */
     if (!raw && scopeOption?.extraClause) {
-      query = `${query} AND ((${scopeOption.extraClause}) OR -service:aca)`;
+      scoping.push(`((${scopeOption.extraClause}) OR -service:aca)`);
     }
 
+    /*
+     * Additional parameters go in the `typed` group but BEFORE the scope
+     * fields, so the identifier stays dead last. Both are the user's own, and
+     * the scope field is the one they come back to delete.
+     */
     const params = this.formatAdditionalParams(input.additionalParams);
-    if (params) query = `${query} AND ${params}`;
+    if (params) typed.unshift(params);
 
     /*
      * ------------------------------------------------------------------------
@@ -254,7 +293,7 @@ export class QueryBuilderV2Service implements QueryEngine {
         input.scope?.fields
       );
       const exclusion = routineChatterExclusion(chatterExceptions);
-      if (exclusion) query = `${query} AND ${exclusion}`;
+      if (exclusion) exclusions.push(exclusion);
     }
 
     /*
@@ -279,7 +318,7 @@ export class QueryBuilderV2Service implements QueryEngine {
       );
       const exclusion = chronicExclusion(chronicExceptions);
       if (exclusion) {
-        query = `${query} AND ${exclusion}`;
+        exclusions.push(exclusion);
         // Summary takes the same exceptions, or the warning names things that
         // were not hidden -- which sends the user hunting for a toggle to
         // recover data already in front of them.
@@ -318,6 +357,15 @@ export class QueryBuilderV2Service implements QueryEngine {
         'Nothing has been filtered out. This is everything logged for this agency and environment, which is deliberate -- narrow it down in Datadog and you can be certain nothing was removed before you looked. Once you know what you are investigating, pick a Scope to cut the routine noise.'
       );
     }
+
+    /*
+     * The join. Exclusions first because they are boilerplate, identity next
+     * because it is the substance, then what the scope added, then what the user
+     * typed -- with the scope fields last so the identifier is the easiest thing
+     * in the string to find and delete. See the note on `exclusions` above for
+     * why reordering is safe.
+     */
+    const query = [...exclusions, identityGroup, ...scoping, ...typed].join(' AND ');
 
     return { query, warnings, errors };
   }
