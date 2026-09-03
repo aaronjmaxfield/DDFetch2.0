@@ -519,10 +519,64 @@ describe('AppComponent (characterization)', () => {
             expect(component.activeEndCalendarValue).toBe('2026-07-29T09:25');
         });
 
-        it('reuses the existing presets rather than reimplementing them', () => {
-            component.applyRangePreset('Past 7 Days');
-            expect(component.selectedTimeframe).toBe('Past 7 Days');
+        it('closes when the range completes, not on the first click', () => {
+            /*
+             * "when I select my dates it should be auto closed" -- but closing
+             * on the FIRST click would make a multi-day window unreachable,
+             * which is the whole point of the control. So the first click
+             * leaves it open to be extended and the second closes it.
+             */
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.rangeOpen = true;
+
+            component.pickDay(dayAt('2026-07-27'));
+            expect(component.rangeOpen).toBe(true);
+
+            component.pickDay(dayAt('2026-07-30'));
+            expect(component.rangeOpen).toBe(false);
+        });
+
+        it('a single day is two clicks on the same date, and closes', () => {
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.rangeOpen = true;
+
+            component.pickDay(dayAt('2026-07-27'));
+            component.pickDay(dayAt('2026-07-27'));
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+            expect(component.rangeOpen).toBe(false);
+        });
+
+        it('a Timeframe preset resets the picker instead of extending from it', () => {
+            /*
+             * The Timeframe dropdown sits beside the picker and writes the same
+             * timestamps. Without a reset, choosing a preset and then clicking
+             * one day would extend from the date the preset had just replaced.
+             */
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.pickDay(dayAt('2026-07-27')); // leaves the picker extending
+
+            component.selectedTimeframe = 'Past 7 Days';
+            component.onTimeframeChange();
             expect(component.activeBeginCalendarValue).toContain('2026-08-20');
+            expect(component.rangeOpen).toBe(false);
+
+            // The next click starts a fresh range rather than extending.
+            component.calendarMonth = new Date(2026, 7, 1);
+            component.pickDay(dayAt('2026-08-25'));
+            expect(component.activeBeginCalendarValue).toBe('2026-08-25T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-08-25T23:59');
+        });
+
+        it('keeps the Timeframe dropdown alongside the picker', () => {
+            // Requested explicitly: the presets answer "recently" and the
+            // picker answers "that specific day".
+            component.toggleRangePicker();
+            fixture.detectChanges();
+
+            expect(fixture.nativeElement.querySelector('#selectedTimeframe')).toBeTruthy();
+            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeTruthy();
         });
     });
 

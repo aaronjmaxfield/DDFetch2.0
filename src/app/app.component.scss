@@ -558,8 +558,9 @@ label {
   top: calc(100% + 4px);
   left: 0;
   z-index: 40;
-  display: flex;
-  gap: 10px;
+  /* Wider than the trigger it hangs from, so the 7-column grid is not squeezed
+     by whatever width the field happens to have. */
+  width: max-content;
   padding: 10px;
   background: #fff;
   border: 1px solid var(--brand-line);
@@ -569,34 +570,9 @@ label {
     0 12px 30px rgba(0, 0, 0, 0.22);
 }
 
-.range-presets {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-right: 10px;
-  border-right: 1px solid var(--brand-line);
-}
-
-.range-preset {
-  border: 0;
-  background: transparent;
-  border-radius: 6px;
-  padding: 5px 10px;
-  font-size: 12px;
-  text-align: left;
-  white-space: nowrap;
-  color: var(--ink);
-  cursor: pointer;
-
-  &:hover {
-    background: var(--brand-tint);
-  }
-
-  &.active {
-    background: var(--brand);
-    color: #fff;
-  }
-}
+/* The popover's preset column was removed once the Timeframe dropdown moved
+   alongside the trigger -- two lists of the same presets in adjacent controls,
+   and it doubled the popover width for no gain. */
 
 .range-cal-head {
   display: flex;

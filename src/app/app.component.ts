@@ -589,6 +589,18 @@ export class AppComponent {
     } else {
       this.activeEndCalendarValue = this.endOfDay(day.key);
       this.extending = false;
+      /*
+       * Close on COMPLETION, not on the first click. Requested as "when I
+       * select my dates it should be auto closed", and the second click is
+       * where the dates stop being provisional.
+       *
+       * Closing on the first click would make a multi-day window unreachable
+       * -- the whole point of the control -- so the first click leaves it open
+       * to be extended. A single day is two clicks on the same date, which
+       * lands here because a repeat click is not "earlier" and so completes
+       * the range rather than restarting it.
+       */
+      this.rangeOpen = false;
     }
     this.previews = [];
   }
@@ -612,25 +624,17 @@ export class AppComponent {
     this.previews = [];
   }
 
-  /** Presets reuse the existing timeframe logic rather than reimplementing it. */
-  applyRangePreset(name: string) {
-    this.selectedTimeframe = name;
-    this.onTimeframeChange();
-    this.extending = false;
-    this.previews = [];
-  }
-
-  readonly rangePresets = [
-    'TODAY',
-    'Past 1 Hour',
-    'Past 4 Hours',
-    'Past 1 Day',
-    'Past 3 Days',
-    'Past 7 Days',
-    'Past 15 Days',
-  ];
-
   onTimeframeChange() {
+    /*
+     * Resetting here rather than in a picker-specific handler, because the
+     * Timeframe dropdown writes the timestamps directly and both editors share
+     * it. Without this, choosing a preset and then clicking one calendar day
+     * would EXTEND from the date the preset had just replaced, producing a
+     * window neither action asked for.
+     */
+    this.extending = false;
+    this.rangeOpen = false;
+
     const currentDate = new Date();
     let beginTimestampDate = new Date();
 

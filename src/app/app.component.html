@@ -213,7 +213,36 @@
         -->
         @if (useRangePicker) {
           <div class="row form-row">
-            <div class="col-md-8 mb-2">
+            <!--
+              Timeframe stays alongside the range picker rather than being
+              replaced by it: the presets answer "recently" and the picker
+              answers "that specific day", and those are different questions.
+              The picker's own preset column was removed when this landed --
+              two lists of the same presets in adjacent controls is one too
+              many, and dropping it halves the popover's width.
+            -->
+            <div class="col-md-4 mb-2">
+              <label for="selectedTimeframe">Timeframe</label>
+              <select
+                class="form-control"
+                id="selectedTimeframe"
+                [(ngModel)]="selectedTimeframe"
+                (change)="onTimeframeChange()"
+                name="selectedTimeframe"
+              >
+                <option value="TODAY">TODAY</option>
+                <option value="Past 15 Minutes">Past 15 Mins</option>
+                <option value="Past 1 Hour">Past 1 Hour</option>
+                <option value="Past 4 Hours">Past 4 Hours</option>
+                <option value="Past 1 Day">Past 1 Day</option>
+                <option value="Past 2 Days">Past 2 Days</option>
+                <option value="Past 3 Days">Past 3 Days</option>
+                <option value="Past 7 Days">Past 7 Days</option>
+                <option value="Past 15 Days">Past 15 Days</option>
+              </select>
+            </div>
+
+            <div class="col-md-4 mb-2">
               <label for="rangeToggleBtn">Time range</label>
               <div class="range-field">
                 <button
@@ -231,19 +260,6 @@
                 @if (rangeOpen) {
                   <!-- Popover, so the calendar costs no card height when shut. -->
                   <div class="range-pop" role="dialog" aria-label="Choose a time range">
-                    <div class="range-presets">
-                      @for (p of rangePresets; track p) {
-                        <button
-                          type="button"
-                          class="range-preset"
-                          [class.active]="selectedTimeframe === p"
-                          (click)="applyRangePreset(p)"
-                        >
-                          {{ p === 'TODAY' ? 'Today' : p }}
-                        </button>
-                      }
-                    </div>
-
                     <div class="range-cal">
                       <div class="range-cal-head">
                         <button type="button" class="range-nav" (click)="prevMonth()" aria-label="Previous month">&#8249;</button>
