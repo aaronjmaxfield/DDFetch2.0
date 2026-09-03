@@ -17,6 +17,39 @@ import {
 /** Which engine(s) to run for a submission. */
 export type EngineMode = 'v2' | 'legacy' | 'compare';
 
+/** One cell in the range picker's month grid. */
+export interface CalendarDay {
+  /** `YYYY-MM-DD` in LOCAL time -- the same shape the inputs use. */
+  key: string;
+  label: number;
+  inMonth: boolean;
+  isStart: boolean;
+  isEnd: boolean;
+  inRange: boolean;
+  isToday: boolean;
+  disabled: boolean;
+}
+
+/**
+ * `YYYY-MM-DD` for a Date in LOCAL time.
+ *
+ * Not `toISOString().slice(0, 10)`, which is UTC and therefore reports the
+ * wrong day for any evening west of Greenwich -- 8pm Mountain is already
+ * tomorrow in UTC, so a "today" comparison would disable today.
+ */
+function localDayKey(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function addMonths(d: Date, n: number): Date {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+
 /** One engine's output, ready to render and open. */
 export interface QueryPreview {
   engine: EngineId;
@@ -119,6 +152,7 @@ export class AppComponent {
     this.activeEndCalendarValue = endTimestamp.toISOString().slice(0, 16);
     this.readmeHidden = true;
     this.recentSearches = this.recent.list(20);
+    this.loadRangePref();
   }
 
   toggleReadme() {
@@ -402,6 +436,200 @@ export class AppComponent {
     this.previews = [];
   }
 
+  /* =========================================================================
+   * RANGE PICKER -- an alternative editor for the same two values
+   * =========================================================================
+   * Requested as "a joint timestamp that allows you to select a multi day
+   * window, kind of like datadog uses", to be tried alongside the existing two
+   * fields rather than instead of them: "I want to test to see if I like it
+   * better or if we leave it alone."
+   *
+   * THE DESIGN DECISION THAT MAKES THIS SAFE: it writes
+   * `activeBeginCalendarValue` and `activeEndCalendarValue`, the same two
+   * strings the two-field version writes. Validation, submit, the rehydration
+   * boundary and the window note all read those, so none of them can tell which
+   * editor was used and none of them changed. Switching editors mid-search
+   * keeps whatever is already selected.
+   *
+   * It lives in a popover, like the recent-agency menu, so a calendar costs
+   * zero card height while closed -- the no-scrollbar goal is the constraint
+   * every layout decision here answers to.
+   */
+  /*
+   * OFF by default, deliberately. The two-field editor stays canonical until
+   * the range picker has actually been judged better -- the brief was "test to
+   * see if I like it better or if we leave it alone", which is not a decision
+   * to switch. The preference is remembered once changed, so evaluating it
+   * takes one click and survives reloads.
+   */
+  useRangePicker = false;
+  rangeOpen = false;
+  /** First of the month currently drawn. */
+  calendarMonth: Date = startOfMonth(new Date());
+  /**
+   * True once a start has been picked and the next click should extend the end.
+   *
+   * Every click leaves a VALID range rather than a half-open one: the first
+   * click sets start and end to the same day, and the second extends the end.
+   * A picker that can sit in a broken state invites a submit in that state.
+   */
+  private extending = false;
+
+  private readonly RANGE_PREF_KEY = 'ddfetch.useRangePicker.v1';
+
+  toggleRangePicker() {
+    this.useRangePicker = !this.useRangePicker;
+    this.rangeOpen = false;
+    try {
+      localStorage.setItem(this.RANGE_PREF_KEY, this.useRangePicker ? '1' : '0');
+    } catch {
+      /* A remembered preference is a nicety; losing it must not break the form. */
+    }
+  }
+
+  private loadRangePref() {
+    try {
+      const raw = localStorage.getItem(this.RANGE_PREF_KEY);
+      if (raw !== null) this.useRangePicker = raw === '1';
+    } catch {
+      /* Default stands. */
+    }
+  }
+
+  toggleRangeOpen() {
+    this.rangeOpen = !this.rangeOpen;
+    if (this.rangeOpen) {
+      // Open on the month the current start is in, not on today -- otherwise
+      // reopening after picking July drops you back in September.
+      const start = this.activeBeginCalendarValue.slice(0, 10);
+      this.calendarMonth = startOfMonth(start ? new Date(`${start}T12:00`) : new Date());
+      this.extending = false;
+    }
+  }
+
+  closeRange() {
+    this.rangeOpen = false;
+  }
+
+  /** What the collapsed control shows. */
+  get rangeSummary(): string {
+    const b = this.activeBeginCalendarValue;
+    const e = this.activeEndCalendarValue;
+    if (!b || !e) return 'Select a time range';
+    const fmt = (v: string) =>
+      new Date(`${v}`).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+    return `${fmt(b)} – ${fmt(e)}`;
+  }
+
+  get calendarMonthLabel(): string {
+    return this.calendarMonth.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  }
+
+  prevMonth() {
+    this.calendarMonth = addMonths(this.calendarMonth, -1);
+  }
+
+  nextMonth() {
+    // Nothing to search in the future, so there is nothing to page into.
+    if (this.nextMonthDisabled) return;
+    this.calendarMonth = addMonths(this.calendarMonth, 1);
+  }
+
+  get nextMonthDisabled(): boolean {
+    const next = addMonths(this.calendarMonth, 1);
+    return next > startOfMonth(new Date());
+  }
+
+  /** Six weeks of cells, so the grid never changes height between months. */
+  get calendarDays(): CalendarDay[] {
+    const first = this.calendarMonth;
+    const gridStart = new Date(first);
+    gridStart.setDate(1 - first.getDay());
+
+    const startKey = this.activeBeginCalendarValue.slice(0, 10);
+    const endKey = this.activeEndCalendarValue.slice(0, 10);
+    const todayKey = localDayKey(new Date());
+
+    const out: CalendarDay[] = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + i);
+      const key = localDayKey(d);
+      out.push({
+        key,
+        label: d.getDate(),
+        inMonth: d.getMonth() === first.getMonth(),
+        isStart: key === startKey,
+        isEnd: key === endKey,
+        inRange: key > startKey && key < endKey,
+        isToday: key === todayKey,
+        // Future days cannot be searched; the form rejects them on submit.
+        disabled: key > todayKey,
+      });
+    }
+    return out;
+  }
+
+  pickDay(day: CalendarDay) {
+    if (day.disabled) return;
+
+    const startKey = this.activeBeginCalendarValue.slice(0, 10);
+
+    if (!this.extending || day.key < startKey) {
+      // Start a new range. Both ends on one day, which is a complete and
+      // sensible selection on its own -- "what happened that day".
+      this.activeBeginCalendarValue = `${day.key}T00:00`;
+      this.activeEndCalendarValue = this.endOfDay(day.key);
+      this.extending = true;
+    } else {
+      this.activeEndCalendarValue = this.endOfDay(day.key);
+      this.extending = false;
+    }
+    this.previews = [];
+  }
+
+  /* The time halves, edited in place so the date selection is not disturbed. */
+  get rangeStartTime(): string {
+    return this.activeBeginCalendarValue.slice(11, 16) || '00:00';
+  }
+  set rangeStartTime(value: string) {
+    if (!value) return;
+    this.activeBeginCalendarValue = `${this.activeBeginCalendarValue.slice(0, 10)}T${value}`;
+    this.previews = [];
+  }
+
+  get rangeEndTime(): string {
+    return this.activeEndCalendarValue.slice(11, 16) || '23:59';
+  }
+  set rangeEndTime(value: string) {
+    if (!value) return;
+    this.activeEndCalendarValue = `${this.activeEndCalendarValue.slice(0, 10)}T${value}`;
+    this.previews = [];
+  }
+
+  /** Presets reuse the existing timeframe logic rather than reimplementing it. */
+  applyRangePreset(name: string) {
+    this.selectedTimeframe = name;
+    this.onTimeframeChange();
+    this.extending = false;
+    this.previews = [];
+  }
+
+  readonly rangePresets = [
+    'TODAY',
+    'Past 1 Hour',
+    'Past 4 Hours',
+    'Past 1 Day',
+    'Past 3 Days',
+    'Past 7 Days',
+    'Past 15 Days',
+  ];
+
   onTimeframeChange() {
     const currentDate = new Date();
     let beginTimestampDate = new Date();
@@ -498,8 +726,9 @@ export class AppComponent {
    */
   private endOfDay(day: string): string {
     const now = new Date();
-    const todayLocal = this.convertUTCtoLocal(now).toISOString().slice(0, 10);
-    if (day === todayLocal) {
+    // localDayKey rather than the UTC-shifted trick: 8pm Mountain is already
+    // tomorrow in UTC, so an ISO slice would fail to recognise today.
+    if (day === localDayKey(now)) {
       return this.convertUTCtoLocal(now).toISOString().slice(0, 16);
     }
     return `${day}T23:59`;

@@ -23,6 +23,14 @@ describe('AppComponent (characterization)', () => {
     const NOW = new Date(2026, 7, 27, 14, 30, 0, 0); // 2026-08-27 14:30 local
 
     beforeEach(async () => {
+        /*
+         * The component reads two things from localStorage on init -- recent
+         * searches and the range-picker preference -- so leftover state leaks
+         * between tests. It bit immediately: one test toggling the range picker
+         * removed the timestamp inputs from the DOM for every test after it.
+         */
+        localStorage.clear();
+
         await TestBed.configureTestingModule({
             imports: [FormsModule],
             declarations: [AppComponent],
@@ -401,6 +409,121 @@ describe('AppComponent (characterization)', () => {
 
         component.toggleAdvanced();
         expect(component.rawMode).toBe(false);
+    });
+
+    describe('range picker', () => {
+        /*
+         * An alternative editor over the same two values. The point of these
+         * tests is that it cannot diverge from the two-field version -- both
+         * write activeBeginCalendarValue and activeEndCalendarValue, so
+         * validation and submit cannot tell which was used.
+         *
+         * NOW is fixed at 2026-08-27 14:30 local in this suite.
+         */
+        function dayAt(key: string) {
+            const found = component.calendarDays.find((d) => d.key === key);
+            if (!found) throw new Error(`No ${key} in the drawn month`);
+            return found;
+        }
+
+        it('is off by default, so the existing editor stays canonical', () => {
+            expect(component.useRangePicker).toBe(false);
+            // And the two-field inputs are the ones in the DOM.
+            expect(fixture.nativeElement.querySelector('#inputBeginTimestamp')).toBeTruthy();
+            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeFalsy();
+        });
+
+        it('swaps the editor without losing the current selection', () => {
+            component.activeBeginCalendarValue = '2026-07-27T00:00';
+            component.activeEndCalendarValue = '2026-07-29T23:59';
+
+            component.toggleRangePicker();
+            fixture.detectChanges();
+
+            expect(component.useRangePicker).toBe(true);
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-29T23:59');
+            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeTruthy();
+        });
+
+        it('a single click selects that whole day', () => {
+            component.activeBeginCalendarValue = '2026-08-27T14:00';
+            component.activeEndCalendarValue = '2026-08-27T14:30';
+            component.calendarMonth = new Date(2026, 6, 1); // July
+
+            component.pickDay(dayAt('2026-07-27'));
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+        });
+
+        it('a second, later click extends the window across both days', () => {
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.pickDay(dayAt('2026-07-27'));
+            component.pickDay(dayAt('2026-07-30'));
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-30T23:59');
+        });
+
+        it('an earlier second click restarts rather than inverting the range', () => {
+            // An inverted range would fail validation with a confusing message,
+            // so the picker cannot produce one.
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.pickDay(dayAt('2026-07-27'));
+            component.pickDay(dayAt('2026-07-20'));
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-20T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-20T23:59');
+            expect(component.activeBeginCalendarValue < component.activeEndCalendarValue).toBe(true);
+        });
+
+        it('marks future days unselectable and ignores a click on one', () => {
+            component.calendarMonth = new Date(2026, 7, 1); // August, containing NOW
+            expect(dayAt('2026-08-28').disabled).toBe(true);
+            expect(dayAt('2026-08-27').disabled).toBe(false);
+
+            component.activeBeginCalendarValue = '2026-08-01T00:00';
+            component.pickDay(dayAt('2026-08-28'));
+            expect(component.activeBeginCalendarValue).toBe('2026-08-01T00:00');
+        });
+
+        it('clamps today to now rather than to 23:59', () => {
+            component.calendarMonth = new Date(2026, 7, 1);
+            component.pickDay(dayAt('2026-08-27'));
+            expect(component.activeEndCalendarValue.startsWith('2026-08-27T14:3')).toBe(true);
+        });
+
+        it('cannot page into the future', () => {
+            component.calendarMonth = new Date(2026, 7, 1); // the current month
+            expect(component.nextMonthDisabled).toBe(true);
+            component.nextMonth();
+            expect(component.calendarMonth.getMonth()).toBe(7);
+        });
+
+        it('draws a fixed six-week grid so the popover never changes height', () => {
+            component.calendarMonth = new Date(2026, 6, 1);
+            expect(component.calendarDays.length).toBe(42);
+            component.calendarMonth = new Date(2026, 1, 1); // February
+            expect(component.calendarDays.length).toBe(42);
+        });
+
+        it('edits the time without disturbing the chosen dates', () => {
+            component.activeBeginCalendarValue = '2026-07-27T00:00';
+            component.activeEndCalendarValue = '2026-07-29T23:59';
+
+            component.rangeStartTime = '09:18';
+            component.rangeEndTime = '09:25';
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T09:18');
+            expect(component.activeEndCalendarValue).toBe('2026-07-29T09:25');
+        });
+
+        it('reuses the existing presets rather than reimplementing them', () => {
+            component.applyRangePreset('Past 7 Days');
+            expect(component.selectedTimeframe).toBe('Past 7 Days');
+            expect(component.activeBeginCalendarValue).toContain('2026-08-20');
+        });
     });
 
     describe('date picking', () => {

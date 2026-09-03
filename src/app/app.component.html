@@ -202,7 +202,113 @@
           </div>
         </div>
 
-        <!-- Timeframe and timestamps -->
+        <!--
+          Timeframe and timestamps, in one of two editors.
+
+          Both write the same two values, so everything downstream -- validation,
+          submit, the rehydration boundary, the window note -- is identical
+          either way and cannot tell which was used. Switching keeps the current
+          selection. The choice is remembered so a preference survives a reload
+          while it is being evaluated.
+        -->
+        @if (useRangePicker) {
+          <div class="row form-row">
+            <div class="col-md-8 mb-2">
+              <label for="rangeToggleBtn">Time range</label>
+              <div class="range-field">
+                <button
+                  type="button"
+                  id="rangeToggleBtn"
+                  class="form-control range-trigger"
+                  [class.open]="rangeOpen"
+                  [attr.aria-expanded]="rangeOpen"
+                  (click)="toggleRangeOpen()"
+                >
+                  <span>{{ rangeSummary }}</span>
+                  <span class="caret" aria-hidden="true">&#9662;</span>
+                </button>
+
+                @if (rangeOpen) {
+                  <!-- Popover, so the calendar costs no card height when shut. -->
+                  <div class="range-pop" role="dialog" aria-label="Choose a time range">
+                    <div class="range-presets">
+                      @for (p of rangePresets; track p) {
+                        <button
+                          type="button"
+                          class="range-preset"
+                          [class.active]="selectedTimeframe === p"
+                          (click)="applyRangePreset(p)"
+                        >
+                          {{ p === 'TODAY' ? 'Today' : p }}
+                        </button>
+                      }
+                    </div>
+
+                    <div class="range-cal">
+                      <div class="range-cal-head">
+                        <button type="button" class="range-nav" (click)="prevMonth()" aria-label="Previous month">&#8249;</button>
+                        <span class="range-month">{{ calendarMonthLabel }}</span>
+                        <button
+                          type="button"
+                          class="range-nav"
+                          (click)="nextMonth()"
+                          [disabled]="nextMonthDisabled"
+                          aria-label="Next month"
+                        >&#8250;</button>
+                      </div>
+
+                      <div class="range-dow">
+                        <span>Su</span><span>Mo</span><span>Tu</span><span>We</span>
+                        <span>Th</span><span>Fr</span><span>Sa</span>
+                      </div>
+
+                      <div class="range-grid">
+                        @for (d of calendarDays; track d.key) {
+                          <button
+                            type="button"
+                            class="range-day"
+                            [class.outside]="!d.inMonth"
+                            [class.start]="d.isStart"
+                            [class.end]="d.isEnd"
+                            [class.inrange]="d.inRange"
+                            [class.today]="d.isToday"
+                            [disabled]="d.disabled"
+                            (click)="pickDay(d)"
+                          >{{ d.label }}</button>
+                        }
+                      </div>
+
+                      <p class="range-hint">
+                        Click a day for that whole day. Click a second, later day to extend the
+                        window across both.
+                      </p>
+
+                      <div class="range-times">
+                        <label>
+                          From
+                          <input type="time" class="form-control" [(ngModel)]="rangeStartTime" name="rangeStartTime" />
+                        </label>
+                        <label>
+                          To
+                          <input type="time" class="form-control" [(ngModel)]="rangeEndTime" name="rangeEndTime" />
+                        </label>
+                        <button type="button" class="btn btn-sm custom-btn-primary range-done" (click)="closeRange()">
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+
+            <div class="col-md-4 mb-2 range-switch-cell">
+              <button type="button" class="linky" (click)="toggleRangePicker()">
+                Use separate begin/end fields
+              </button>
+            </div>
+          </div>
+        } @else {
         <div class="row form-row">
           <div class="col-md-4 mb-2">
             <label for="selectedTimeframe">Timeframe</label>
@@ -249,6 +355,15 @@
             />
           </div>
         </div>
+
+        <div class="row form-row form-row-tight">
+          <div class="col-md-12">
+            <button type="button" class="linky" (click)="toggleRangePicker()">
+              Use the combined range picker
+            </button>
+          </div>
+        </div>
+        }
 
         <!-- Applications. Input before label throughout: the original markup put
              the label first, which left the box jammed against the text. -->
