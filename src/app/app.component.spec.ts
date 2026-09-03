@@ -403,6 +403,64 @@ describe('AppComponent (characterization)', () => {
         expect(component.rawMode).toBe(false);
     });
 
+    describe('date picking', () => {
+        /*
+         * Reported: "since today is only 4:15pm if I select a prior date, it
+         * doesn't update the time. It should be updating it to a full day."
+         * A datetime-local input keeps its time when only the date changes, so
+         * picking 27 July mid-afternoon started the window at 16:15 and
+         * silently dropped the morning.
+         */
+        it('snaps a past date to the whole day', () => {
+            component.activeBeginCalendarValue = '2026-09-03T16:15';
+            component.activeEndCalendarValue = '2026-09-03T16:15';
+
+            component.onBeginDateChange('2026-07-27T16:15');
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+        });
+
+        it('leaves a hand-typed time alone', () => {
+            /*
+             * The load-bearing case. The workflow is to search wide, find the
+             * minute, then type an exact time -- so snapping on every edit
+             * would undo the narrowing. Only a DATE change snaps.
+             */
+            component.activeBeginCalendarValue = '2026-07-27T00:00';
+            component.activeEndCalendarValue = '2026-07-27T23:59';
+
+            component.onBeginDateChange('2026-07-27T09:18');
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T09:18');
+            // And the end is untouched by a begin time edit.
+            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+
+            component.onEndDateChange('2026-07-27T09:25');
+            expect(component.activeEndCalendarValue).toBe('2026-07-27T09:25');
+        });
+
+        it('clamps the end to now when the day picked is today', () => {
+            // 23:59 today is in the future, and a future timestamp is rejected
+            // on submit -- so snapping there would turn a correct pick into an
+            // alert. NOW is fixed at 2026-08-27 14:30 local in this suite.
+            component.activeBeginCalendarValue = '2026-07-27T00:00';
+            component.onBeginDateChange('2026-08-27T00:00');
+
+            expect(component.activeEndCalendarValue).not.toBe('2026-08-27T23:59');
+            expect(component.activeEndCalendarValue.startsWith('2026-08-27T14:3')).toBe(true);
+        });
+
+        it('moving only the end date extends the window rather than resetting it', () => {
+            component.activeBeginCalendarValue = '2026-07-27T00:00';
+            component.activeEndCalendarValue = '2026-07-27T23:59';
+
+            component.onEndDateChange('2026-07-29T23:59');
+
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
+            expect(component.activeEndCalendarValue).toBe('2026-07-29T23:59');
+        });
+    });
+
     it('states the window it is about to search, in local time and UTC', () => {
         /*
          * A real search came back empty and was reported as the feature being

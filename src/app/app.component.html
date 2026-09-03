@@ -231,7 +231,8 @@
               type="datetime-local"
               class="form-control"
               id="inputBeginTimestamp"
-              [(ngModel)]="activeBeginCalendarValue"
+              [ngModel]="activeBeginCalendarValue"
+              (ngModelChange)="onBeginDateChange($event)"
               name="activeBeginCalendarValue"
             />
           </div>
@@ -242,7 +243,8 @@
               type="datetime-local"
               class="form-control"
               id="inputEndTimestamp"
-              [(ngModel)]="activeEndCalendarValue"
+              [ngModel]="activeEndCalendarValue"
+              (ngModelChange)="onEndDateChange($event)"
               name="activeEndCalendarValue"
             />
           </div>
@@ -568,13 +570,15 @@
                     [checked]="rawMode"
                     (change)="onRawModeToggle($any($event.target).checked)"
                   />
-                  <label for="rawModeCheckbox">Raw logs -- turn off all filtering</label>
+                  <label for="rawModeCheckbox">
+                    Raw logs -- no filtering, and the safe choice for rehydration
+                  </label>
                   <span
                     class="info"
                     tabindex="0"
                     role="note"
-                    aria-label="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Your scope still decides which services to look at. Anything typed into the scope fields is ignored. Use it when a scoped search came back thinner than you expected."
-                    data-tip="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Your scope still decides which services to look at. Anything typed into the scope fields is ignored. Use it when a scoped search came back thinner than you expected."
+                    aria-label="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Two uses: when a scoped search came back thinner than you expected, and when you are rehydrating logs older than 15 days, because the query is baked into the rehydration and narrowing it means rehydrating again to get anything you left out."
+                    data-tip="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Two uses: when a scoped search came back thinner than you expected, and when you are rehydrating logs older than 15 days, because the query is baked into the rehydration and narrowing it means rehydrating again to get anything you left out."
                     >i</span
                   >
                 </div>
@@ -582,6 +586,12 @@
                   Every line for what you selected. The Scope still chooses which services to search
                   -- <code>Payment &gt; Forte</code> keeps the payment adapter in -- but none of its
                   filters are applied and its fields are ignored. Expect a lot of results.
+                </p>
+                <p class="section-note">
+                  <strong>Worth turning on for anything older than 15 days.</strong> Those searches
+                  rehydrate from archive, and the query goes into the rehydration itself -- so
+                  whatever a filter removed is not merely hidden, it was never pulled, and getting it
+                  back means rehydrating the window a second time. Pull everything once instead.
                 </p>
               </div>
             </div>

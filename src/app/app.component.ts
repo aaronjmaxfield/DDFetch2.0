@@ -439,6 +439,72 @@ export class AppComponent {
     this.activeEndCalendarValue = this.convertUTCtoLocal(currentDate).toISOString().slice(0, 16);
   }
 
+  /*
+   * ---------------------------------------------------------------------------
+   * PICKING A DATE SHOULD GIVE YOU THAT WHOLE DAY
+   * ---------------------------------------------------------------------------
+   * A `datetime-local` input keeps its time when you change only its date, so
+   * choosing 27 July at 16:15 on the clock gave `2026-07-27T16:15` -- a window
+   * that starts mid-afternoon and silently excludes the morning. Reported
+   * exactly that way: "since today is only 4:15pm if I select a prior date, it
+   * doesn't update the time. It should be updating it to a full day."
+   *
+   * So changing the DATE snaps the times: begin to 00:00, end to 23:59 of the
+   * same day, which is the single full day the request describes.
+   *
+   * ONLY when the date changes. This is the load-bearing part, because the
+   * normal workflow is to search a wide window, find the minute something
+   * happened, and then type an exact time to narrow it. Snapping on every edit
+   * would fight that and undo the narrowing on each keystroke. The date portion
+   * of the string is compared against the previous value, and a time-only edit
+   * is left alone.
+   *
+   * The end is clamped to now when the chosen day is today, because a future
+   * timestamp is rejected on submit -- so 23:59 today would turn a correct pick
+   * into an alert.
+   */
+  onBeginDateChange(value: string) {
+    const previous = this.activeBeginCalendarValue;
+    this.activeBeginCalendarValue = value;
+    if (!this.dateChanged(previous, value)) return;
+
+    const day = value.slice(0, 10);
+    this.activeBeginCalendarValue = `${day}T00:00`;
+    // A single date pick means that one day, so bring the end with it.
+    this.activeEndCalendarValue = this.endOfDay(day);
+    this.previews = [];
+  }
+
+  onEndDateChange(value: string) {
+    const previous = this.activeEndCalendarValue;
+    this.activeEndCalendarValue = value;
+    if (!this.dateChanged(previous, value)) return;
+
+    this.activeEndCalendarValue = this.endOfDay(value.slice(0, 10));
+    this.previews = [];
+  }
+
+  /** True when the calendar date moved, as opposed to only the clock time. */
+  private dateChanged(previous: string, next: string): boolean {
+    return previous.slice(0, 10) !== next.slice(0, 10) && next.length >= 10;
+  }
+
+  /**
+   * 23:59 on the given day, or the current time if that day is today.
+   *
+   * Datadog is exclusive of nothing here -- 23:59 loses the final minute of the
+   * day, which is the cost of matching what the user typed. 23:59:59 is not
+   * expressible in a `datetime-local` input at minute precision.
+   */
+  private endOfDay(day: string): string {
+    const now = new Date();
+    const todayLocal = this.convertUTCtoLocal(now).toISOString().slice(0, 10);
+    if (day === todayLocal) {
+      return this.convertUTCtoLocal(now).toISOString().slice(0, 16);
+    }
+    return `${day}T23:59`;
+  }
+
   private convertUTCtoLocal(utcDate: Date): Date {
     const localTimezoneOffset = utcDate.getTimezoneOffset();
     return new Date(utcDate.getTime() - localTimezoneOffset * 60000);
