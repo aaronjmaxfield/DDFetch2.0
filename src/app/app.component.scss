@@ -446,7 +446,17 @@ label {
   position: absolute;
   top: 100%;
   left: 12px;
-  right: 12px;
+  /* SIZED TO ITS CONTENT, not pinned to the field.
+     It used to be `right: 12px`, i.e. exactly the field width, which is
+     narrower than `SCOTTCOUNTYMN NONPROD1 6x`. The environment wrapped to a
+     second line and the count was pushed past the right edge and clipped --
+     so the frequency that explains the ordering could not be seen.
+     `min-width` keeps it at least as wide as the field so it still reads as
+     belonging to it; `max-width` stops a long agency code running the menu
+     past the card, which would be clipped by the panel's `overflow: hidden`. */
+  min-width: calc(100% - 24px);
+  width: max-content;
+  max-width: 340px;
   z-index: 30;
   margin: 3px 0 0;
   padding: 4px;
@@ -483,22 +493,37 @@ label {
   }
 }
 
+/* Nothing in a row wraps. Wrapping is what produced the two-line
+   `US · PROD` and pushed the count out of sight; a row that cannot fit should
+   truncate the agency name visibly rather than silently reflow. */
 .recent-agency {
   font-weight: 600;
   color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recent-env {
   font-size: 11px;
   color: var(--ink-soft);
+  white-space: nowrap;
+  /* Never squeezed to make room for the agency -- the environment is the half
+     that distinguishes two rows for the same agency. */
+  flex: 0 0 auto;
 }
 
 /* Frequency, pushed right. It is the reason the order is what it is, so showing
    it makes the ranking legible rather than arbitrary. */
 .recent-count {
   margin-left: auto;
+  /* Left padding, not a gap: `margin-left: auto` already separates it, and the
+     agency's ellipsis needs somewhere to stop short of this. */
+  padding-left: 6px;
   font-size: 10px;
   color: var(--ink-soft);
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 /* A one-line note under a section label. Explains what a group of controls is

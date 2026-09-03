@@ -170,8 +170,15 @@
                       (mousedown)="pickRecent(r, $event)"
                       (keydown.enter)="pickRecent(r)"
                     >
+                      <!--
+                        No host, so the row fits on one line: it used to read
+                        "AGENCY  US · PROD  6x", which wrapped and clipped the
+                        count off the right edge. The host comes back only when
+                        it is what distinguishes two visible rows -- see
+                        recentNeedsHost.
+                      -->
                       <span class="recent-agency">{{ r.agency }}</span>
-                      <span class="recent-env">{{ r.host }} · {{ r.environment }}</span>
+                      <span class="recent-env">{{ recentEnvLabel(r) }}</span>
                       <span class="recent-count">{{ r.count }}x</span>
                     </button>
                   </li>

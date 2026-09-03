@@ -413,6 +413,65 @@ describe('AppComponent (characterization)', () => {
         expect(component.rawMode).toBe(false);
     });
 
+    describe('recent agency menu', () => {
+        /*
+         * The row used to read `SCOTTCOUNTYMN  US · PROD  6x` in a menu pinned
+         * to the field width. `US · PROD` wrapped to a second line and the
+         * count was pushed past the right edge and clipped -- so the frequency
+         * that explains the ordering could not be seen.
+         */
+        function seed(entries: Array<[string, string, string]>) {
+            component.visibleRecent = entries.map(([agency, host, environment]) => ({
+                agency,
+                host,
+                environment,
+                count: 1,
+                lastUsed: 1,
+            }));
+        }
+
+        it('drops the host, which is what was overflowing', () => {
+            seed([['SCOTTCOUNTYMN', 'US', 'NONPROD1']]);
+            expect(component.recentEnvLabel(component.visibleRecent[0])).toBe('NONPROD1');
+        });
+
+        it('brings the host back when it is the only thing telling two rows apart', () => {
+            /*
+             * The entry is keyed on agency + host + environment, so without
+             * this two rows would look identical and select different things.
+             */
+            seed([
+                ['CRC', 'US', 'TEST'],
+                ['CRC', 'AU', 'TEST'],
+            ]);
+
+            expect(component.recentEnvLabel(component.visibleRecent[0])).toBe('US · TEST');
+            expect(component.recentEnvLabel(component.visibleRecent[1])).toBe('AU · TEST');
+        });
+
+        it('keeps the host hidden when the environments already differ', () => {
+            seed([
+                ['SCOTTCOUNTYMN', 'US', 'PROD'],
+                ['SCOTTCOUNTYMN', 'US', 'NONPROD1'],
+            ]);
+
+            expect(component.recentEnvLabel(component.visibleRecent[0])).toBe('PROD');
+            expect(component.recentEnvLabel(component.visibleRecent[1])).toBe('NONPROD1');
+        });
+
+        it('still applies the host even though it is not shown', () => {
+            // The host is hidden, not dropped -- selecting a row must still set
+            // it, or the search runs against the wrong region.
+            component.recentSearches = [
+                { agency: 'CRC', host: 'US', environment: 'TEST', count: 3, lastUsed: 1 },
+            ];
+            component.applyRecent(component.recentSearches[0]);
+
+            expect(component.host).toBe('US');
+            expect(component.environment).toBe('TEST');
+        });
+    });
+
     describe('range picker', () => {
         /*
          * An alternative editor over the same two values. The point of these

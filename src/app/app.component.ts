@@ -760,6 +760,48 @@ export class AppComponent {
     this.showRecentMenu = false;
   }
 
+  /**
+   * Whether this row needs its host shown.
+   *
+   * ---------------------------------------------------------------------------
+   * THE HOST IS NORMALLY HIDDEN, BECAUSE IT DID NOT FIT
+   * ---------------------------------------------------------------------------
+   * The row used to read `SCOTTCOUNTYMN  US · PROD  6x`, which wrapped
+   * `US · PROD` onto two lines and pushed the count past the right edge of the
+   * menu -- clipped, so the frequency that explains the ordering was invisible.
+   *
+   * Dropping the host is safe in almost every case, since an agency lives on
+   * one host. It is NOT safe in general: the stored entry is keyed on agency +
+   * host + environment, so the same agency on two hosts would render two
+   * identical-looking rows that select different things.
+   *
+   * So the host appears only when it is the thing that tells two visible rows
+   * apart. The list is capped at four, so scanning it per row costs nothing.
+   */
+  recentNeedsHost(entry: RecentSearch): boolean {
+    return this.visibleRecent.some(
+      (other) =>
+        other !== entry &&
+        other.agency === entry.agency &&
+        other.environment === entry.environment &&
+        other.host !== entry.host
+    );
+  }
+
+  /**
+   * The secondary line for a row: the environment, prefixed by the host only
+   * where that is what tells two rows apart.
+   *
+   * Built here rather than in the template so it is one interpolation. The
+   * inline `@if` version wrapped the value in stray whitespace, which showed as
+   * a gap before the separator.
+   */
+  recentEnvLabel(entry: RecentSearch): string {
+    return this.recentNeedsHost(entry)
+      ? `${entry.host} · ${entry.environment}`
+      : entry.environment;
+  }
+
   pickRecent(entry: RecentSearch, event?: Event) {
     // preventDefault on mousedown stops the input blurring, so the menu is not
     // torn down mid-selection.
