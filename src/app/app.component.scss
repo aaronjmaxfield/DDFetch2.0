@@ -553,11 +553,25 @@ label {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   POSITION FIXED, NOT ABSOLUTE, AND THAT IS THE WHOLE POINT
+   ---------------------------------------------------------------------------
+   `.form-panel` sets `overflow: hidden`, so an absolutely positioned popover
+   from a field in the middle of the form gets its bottom cut off at the card
+   edge -- which hid the time controls completely. Reported as "it's clipping
+   underneath the background", and the comment on `.recent-menu` warns about
+   exactly this: that menu only works because it sits near the top of the card.
+   I wrote that warning and then did the thing it warns against.
+
+   `position: fixed` escapes ancestor overflow clipping. It is safe here because
+   no ancestor establishes a containing block for fixed elements -- no
+   transform, filter, perspective or will-change on `.page`, `.form-panel`, or
+   any row or column between them. Coordinates come from the trigger's own
+   bounding rect, set when it opens.
+   --------------------------------------------------------------------------- */
 .range-pop {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 40;
+  position: fixed;
+  z-index: 60;
   /* Wider than the trigger it hangs from, so the 7-column grid is not squeezed
      by whatever width the field happens to have. */
   width: max-content;
@@ -680,6 +694,27 @@ label {
   max-width: 224px;
 }
 
+/* Gives the time inputs a heading, so they read as the second step rather than
+   as two boxes stranded next to Done. They were always here and were being
+   missed -- completing a range closes the popover before they register. */
+.range-time-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--brand-line);
+
+  > span {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+}
+
 .range-times {
   display: flex;
   align-items: flex-end;
@@ -706,12 +741,7 @@ label {
   margin-left: auto;
 }
 
-.range-switch-cell {
-  display: flex;
-  align-items: flex-end;
-}
-
-/* A text button that reads as a link, for switching editors. Not a real link:
+/* A text button that reads as a link. Not a real link:
    there is nowhere to navigate to. */
 .linky {
   border: 0;

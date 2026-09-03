@@ -152,7 +152,6 @@ export class AppComponent {
     this.activeEndCalendarValue = endTimestamp.toISOString().slice(0, 16);
     this.readmeHidden = true;
     this.recentSearches = this.recent.list(20);
-    this.loadRangePref();
   }
 
   toggleReadme() {
@@ -456,14 +455,17 @@ export class AppComponent {
    * every layout decision here answers to.
    */
   /*
-   * OFF by default, deliberately. The two-field editor stays canonical until
-   * the range picker has actually been judged better -- the brief was "test to
-   * see if I like it better or if we leave it alone", which is not a decision
-   * to switch. The preference is remembered once changed, so evaluating it
-   * takes one click and survives reloads.
+   * The two-field editor and the switcher were removed on 2026-09-03 -- "Let's
+   * remove the old time picker, this one is definitely better." The two
+   * `datetime-local` inputs remain in the DOM, visually hidden, because
+   * `validateForm` reads them by id and the characterization tests fill them;
+   * they stay bound to the same two values, so nothing downstream changed. Same
+   * pattern and same class as the legacy additional-service checkboxes.
    */
-  useRangePicker = false;
   rangeOpen = false;
+  /** Viewport coordinates for the popover, read from the trigger when it opens. */
+  rangePopTop = 0;
+  rangePopLeft = 0;
   /** First of the month currently drawn. */
   calendarMonth: Date = startOfMonth(new Date());
   /**
@@ -475,36 +477,34 @@ export class AppComponent {
    */
   private extending = false;
 
-  private readonly RANGE_PREF_KEY = 'ddfetch.useRangePicker.v1';
-
-  toggleRangePicker() {
-    this.useRangePicker = !this.useRangePicker;
-    this.rangeOpen = false;
-    try {
-      localStorage.setItem(this.RANGE_PREF_KEY, this.useRangePicker ? '1' : '0');
-    } catch {
-      /* A remembered preference is a nicety; losing it must not break the form. */
-    }
-  }
-
-  private loadRangePref() {
-    try {
-      const raw = localStorage.getItem(this.RANGE_PREF_KEY);
-      if (raw !== null) this.useRangePicker = raw === '1';
-    } catch {
-      /* Default stands. */
-    }
-  }
-
   toggleRangeOpen() {
     this.rangeOpen = !this.rangeOpen;
-    if (this.rangeOpen) {
-      // Open on the month the current start is in, not on today -- otherwise
-      // reopening after picking July drops you back in September.
-      const start = this.activeBeginCalendarValue.slice(0, 10);
-      this.calendarMonth = startOfMonth(start ? new Date(`${start}T12:00`) : new Date());
-      this.extending = false;
-    }
+    if (!this.rangeOpen) return;
+
+    // Open on the month the current start is in, not on today -- otherwise
+    // reopening after picking July drops you back in September.
+    const start = this.activeBeginCalendarValue.slice(0, 10);
+    this.calendarMonth = startOfMonth(start ? new Date(`${start}T12:00`) : new Date());
+    this.extending = false;
+    this.placeRangePop();
+  }
+
+  /*
+   * The popover is `position: fixed` to escape the card's `overflow: hidden`,
+   * so it needs real viewport coordinates rather than a CSS offset.
+   *
+   * It flips above the trigger when there is not enough room below, which is
+   * the same clipping problem one level out: escaping the card only helps if it
+   * then fits on screen.
+   */
+  private placeRangePop() {
+    const trigger = document.getElementById('rangeToggleBtn');
+    if (!trigger) return;
+    const r = trigger.getBoundingClientRect();
+    const POP_HEIGHT = 330;
+    const below = window.innerHeight - r.bottom;
+    this.rangePopTop = below < POP_HEIGHT && r.top > POP_HEIGHT ? r.top - POP_HEIGHT - 4 : r.bottom + 4;
+    this.rangePopLeft = r.left;
   }
 
   closeRange() {
@@ -615,6 +615,23 @@ export class AppComponent {
     this.previews = [];
   }
 
+  /**
+   * Back to the full span of the chosen days.
+   *
+   * Worth a button because narrowing the time is the common edit -- find the
+   * day, then cut to the minutes -- and undoing it otherwise means retyping
+   * 00:00 and 23:59 from memory. Keeps the dates exactly as they are, and
+   * clamps to now if the last day is today.
+   */
+  resetTimesToWholeDay() {
+    const startDay = this.activeBeginCalendarValue.slice(0, 10);
+    const endDay = this.activeEndCalendarValue.slice(0, 10);
+    if (!startDay || !endDay) return;
+    this.activeBeginCalendarValue = `${startDay}T00:00`;
+    this.activeEndCalendarValue = this.endOfDay(endDay);
+    this.previews = [];
+  }
+
   get rangeEndTime(): string {
     return this.activeEndCalendarValue.slice(11, 16) || '23:59';
   }
@@ -672,54 +689,19 @@ export class AppComponent {
   }
 
   /*
-   * ---------------------------------------------------------------------------
-   * PICKING A DATE SHOULD GIVE YOU THAT WHOLE DAY
-   * ---------------------------------------------------------------------------
-   * A `datetime-local` input keeps its time when you change only its date, so
-   * choosing 27 July at 16:15 on the clock gave `2026-07-27T16:15` -- a window
-   * that starts mid-afternoon and silently excludes the morning. Reported
-   * exactly that way: "since today is only 4:15pm if I select a prior date, it
-   * doesn't update the time. It should be updating it to a full day."
+   * The two-field editor's date-snapping handlers (onBeginDateChange /
+   * onEndDateChange) lived here and were REMOVED on 2026-09-03 with that
+   * editor.
    *
-   * So changing the DATE snaps the times: begin to 00:00, end to 23:59 of the
-   * same day, which is the single full day the request describes.
+   * They were briefly kept wired to the now-hidden compatibility inputs, which
+   * caused a real bug: ngModelChange fires while Angular writes the value in
+   * during a re-render, the handler compared the incoming date against the one
+   * it held, decided the date had changed, and snapped the range back --
+   * silently discarding a calendar selection that had just been made.
    *
-   * ONLY when the date changes. This is the load-bearing part, because the
-   * normal workflow is to search a wide window, find the minute something
-   * happened, and then type an exact time to narrow it. Snapping on every edit
-   * would fight that and undo the narrowing on each keystroke. The date portion
-   * of the string is compared against the previous value, and a time-only edit
-   * is left alone.
-   *
-   * The end is clamped to now when the chosen day is today, because a future
-   * timestamp is rejected on submit -- so 23:59 today would turn a correct pick
-   * into an alert.
+   * Nothing replaced them because nothing needs to: pickDay() produces whole
+   * days by construction, and resetTimesToWholeDay() covers going back to one.
    */
-  onBeginDateChange(value: string) {
-    const previous = this.activeBeginCalendarValue;
-    this.activeBeginCalendarValue = value;
-    if (!this.dateChanged(previous, value)) return;
-
-    const day = value.slice(0, 10);
-    this.activeBeginCalendarValue = `${day}T00:00`;
-    // A single date pick means that one day, so bring the end with it.
-    this.activeEndCalendarValue = this.endOfDay(day);
-    this.previews = [];
-  }
-
-  onEndDateChange(value: string) {
-    const previous = this.activeEndCalendarValue;
-    this.activeEndCalendarValue = value;
-    if (!this.dateChanged(previous, value)) return;
-
-    this.activeEndCalendarValue = this.endOfDay(value.slice(0, 10));
-    this.previews = [];
-  }
-
-  /** True when the calendar date moved, as opposed to only the clock time. */
-  private dateChanged(previous: string, next: string): boolean {
-    return previous.slice(0, 10) !== next.slice(0, 10) && next.length >= 10;
-  }
 
   /**
    * 23:59 on the given day, or the current time if that day is today.
@@ -951,10 +933,29 @@ export class AppComponent {
     this.additionalServices = this.getCheckedAdditionalServices();
   }
 
+  /*
+   * Reads the COMPONENT fields, not the DOM inputs. Changed 2026-09-03 while
+   * removing the two-field editor, and it is a correctness fix rather than a
+   * tidy-up.
+   *
+   * It used to read `inputBeginTimestamp.value` and
+   * `inputEndTimestamp.value`. Those inputs are now hidden compatibility
+   * elements written by Angular, and ngModel writes the view asynchronously --
+   * so a submit could read a value the picker had already replaced and search
+   * the wrong window. It showed up immediately: after picking 27 July the
+   * component held `2026-07-27T00:00` while the input still read
+   * `2026-08-27T00:00`.
+   *
+   * The component fields are what every editor writes, so they are the source
+   * of truth. Typing into the hidden inputs still works -- two-way ngModel
+   * updates the field synchronously on input -- which is what the
+   * characterization tests rely on.
+   */
   private convertTimestamps(): [number, number] {
-    const beginTimestampElement = this.getInputElement('inputBeginTimestamp') as HTMLInputElement;
-    const endTimestampElement = this.getInputElement('inputEndTimestamp') as HTMLInputElement;
-    return this.convertToUnixTimestamps(beginTimestampElement.value, endTimestampElement.value);
+    return this.convertToUnixTimestamps(
+      this.activeBeginCalendarValue,
+      this.activeEndCalendarValue
+    );
   }
 
   private getInputElement(id: string): HTMLElement | null {

@@ -211,8 +211,7 @@
           selection. The choice is remembered so a preference survives a reload
           while it is being evaluated.
         -->
-        @if (useRangePicker) {
-          <div class="row form-row">
+        <div class="row form-row">
             <!--
               Timeframe stays alongside the range picker rather than being
               replaced by it: the presets answer "recently" and the picker
@@ -258,8 +257,18 @@
                 </button>
 
                 @if (rangeOpen) {
-                  <!-- Popover, so the calendar costs no card height when shut. -->
-                  <div class="range-pop" role="dialog" aria-label="Choose a time range">
+                  <!--
+                    Popover, so the calendar costs no card height when shut, and
+                    `position: fixed` at coordinates read from the trigger so the
+                    card's `overflow: hidden` cannot clip its bottom off.
+                  -->
+                  <div
+                    class="range-pop"
+                    role="dialog"
+                    aria-label="Choose a time range"
+                    [style.top.px]="rangePopTop"
+                    [style.left.px]="rangePopLeft"
+                  >
                     <div class="range-cal">
                       <div class="range-cal-head">
                         <button type="button" class="range-nav" (click)="prevMonth()" aria-label="Previous month">&#8249;</button>
@@ -295,9 +304,27 @@
                       </div>
 
                       <p class="range-hint">
-                        Click a day for that whole day. Click a second, later day to extend the
-                        window across both.
+                        Click a day for that whole day. Click a second, later day to extend across
+                        both -- that closes the picker.
                       </p>
+
+                      <!--
+                        The time controls were already here and were hard to
+                        find, because completing a range closes the popover
+                        before they are noticed. Given a heading of their own so
+                        they read as a step rather than as leftovers beside the
+                        button.
+
+                        Deliberately NOT a list of time presets. That is where
+                        this gets busy, and two fields plus a reset covers every
+                        case that has come up.
+                      -->
+                      <div class="range-time-head">
+                        <span>Time of day</span>
+                        <button type="button" class="linky" (click)="resetTimesToWholeDay()">
+                          Whole day
+                        </button>
+                      </div>
 
                       <div class="range-times">
                         <label>
@@ -318,68 +345,48 @@
               </div>
             </div>
 
-            <div class="col-md-4 mb-2 range-switch-cell">
-              <button type="button" class="linky" (click)="toggleRangePicker()">
-                Use separate begin/end fields
-              </button>
-            </div>
-          </div>
-        } @else {
-        <div class="row form-row">
-          <div class="col-md-4 mb-2">
-            <label for="selectedTimeframe">Timeframe</label>
-            <select
-              class="form-control"
-              id="selectedTimeframe"
-              [(ngModel)]="selectedTimeframe"
-              (change)="onTimeframeChange()"
-              name="selectedTimeframe"
-            >
-              <option value="TODAY">TODAY</option>
-              <option value="Past 15 Minutes">Past 15 Mins</option>
-              <option value="Past 1 Hour">Past 1 Hour</option>
-              <option value="Past 4 Hours">Past 4 Hours</option>
-              <option value="Past 1 Day">Past 1 Day</option>
-              <option value="Past 2 Days">Past 2 Days</option>
-              <option value="Past 3 Days">Past 3 Days</option>
-              <option value="Past 7 Days">Past 7 Days</option>
-              <option value="Past 15 Days">Past 15 Days</option>
-            </select>
-          </div>
-
-          <div class="col-md-4 mb-2">
-            <label for="inputBeginTimestamp">Begin Timestamp</label>
-            <input
-              type="datetime-local"
-              class="form-control"
-              id="inputBeginTimestamp"
-              [ngModel]="activeBeginCalendarValue"
-              (ngModelChange)="onBeginDateChange($event)"
-              name="activeBeginCalendarValue"
-            />
-          </div>
-
-          <div class="col-md-4 mb-2">
-            <label for="inputEndTimestamp">End Timestamp</label>
-            <input
-              type="datetime-local"
-              class="form-control"
-              id="inputEndTimestamp"
-              [ngModel]="activeEndCalendarValue"
-              (ngModelChange)="onEndDateChange($event)"
-              name="activeEndCalendarValue"
-            />
-          </div>
         </div>
 
-        <div class="row form-row form-row-tight">
-          <div class="col-md-12">
-            <button type="button" class="linky" (click)="toggleRangePicker()">
-              Use the combined range picker
-            </button>
-          </div>
+        <!--
+          The old two-field editor, kept in the DOM and visually hidden.
+
+          NOT dead markup: `validateForm` reads both by id, and the
+          characterization tests fill them to drive a submission. They stay
+          bound to the same two values the picker writes, so they are always in
+          sync and nothing downstream can tell the difference. Same technique
+          and same class as the legacy additional-service checkboxes below.
+
+          The date-snapping handlers stay wired for the same reason -- anything
+          that sets these directly still gets a whole day rather than a window
+          that starts at whatever the clock said.
+        -->
+        <div class="scope-legacy-inputs">
+          <!--
+            PLAIN two-way binding, no date-snapping handler.
+
+            The snapping handlers were wired here at first and caused a real
+            bug, not just a failing test: `(ngModelChange)` fired while Angular
+            wrote the value in during a re-render, the handler saw a date
+            different from the one it had, and it snapped the range back --
+            silently discarding whatever had just been picked on the calendar.
+
+            The snapping existed for the visible two-field editor, which is
+            gone. The picker gives whole days by construction, so there is
+            nothing left for it to correct.
+          -->
+          <input
+            type="datetime-local"
+            id="inputBeginTimestamp"
+            [(ngModel)]="activeBeginCalendarValue"
+            name="activeBeginCalendarValue"
+          />
+          <input
+            type="datetime-local"
+            id="inputEndTimestamp"
+            [(ngModel)]="activeEndCalendarValue"
+            name="activeEndCalendarValue"
+          />
         </div>
-        }
 
         <!-- Applications. Input before label throughout: the original markup put
              the label first, which left the box jammed against the text. -->

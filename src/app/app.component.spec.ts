@@ -426,24 +426,61 @@ describe('AppComponent (characterization)', () => {
             return found;
         }
 
-        it('is off by default, so the existing editor stays canonical', () => {
-            expect(component.useRangePicker).toBe(false);
-            // And the two-field inputs are the ones in the DOM.
-            expect(fixture.nativeElement.querySelector('#inputBeginTimestamp')).toBeTruthy();
-            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeFalsy();
+        it('is the only visible editor, with the old fields hidden but live', () => {
+            /*
+             * The two-field editor was removed from the UI on 2026-09-03 but
+             * NOT from the DOM: validateForm reads both by id and the
+             * characterization tests fill them. They stay bound to the same two
+             * values, so they cannot drift from what the picker shows.
+             */
+            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeTruthy();
+
+            const hidden = fixture.nativeElement.querySelector('#inputBeginTimestamp');
+            expect(hidden).toBeTruthy();
+            expect(hidden.closest('.scope-legacy-inputs')).toBeTruthy();
         });
 
-        it('swaps the editor without losing the current selection', () => {
-            component.activeBeginCalendarValue = '2026-07-27T00:00';
-            component.activeEndCalendarValue = '2026-07-29T23:59';
-
-            component.toggleRangePicker();
+        it('keeps the hidden fields in step with the picker', () => {
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.pickDay(dayAt('2026-07-27'));
             fixture.detectChanges();
 
-            expect(component.useRangePicker).toBe(true);
+            const begin = fixture.nativeElement.querySelector(
+                '#inputBeginTimestamp'
+            ) as HTMLInputElement;
+            const end = fixture.nativeElement.querySelector(
+                '#inputEndTimestamp'
+            ) as HTMLInputElement;
+
+            /*
+             * The COMPONENT field is what matters and what submit now reads.
+             * The hidden inputs are written by ngModel asynchronously, so
+             * asserting their DOM value here would be testing Angular's flush
+             * timing rather than the picker -- and relying on it was the bug:
+             * convertTimestamps() used to read the DOM and could see a value
+             * the picker had already replaced.
+             */
             expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
-            expect(component.activeEndCalendarValue).toBe('2026-07-29T23:59');
-            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeTruthy();
+            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+            expect(begin).toBeTruthy();
+            expect(end).toBeTruthy();
+        });
+
+        it('submits the window the picker shows, not a stale input value', () => {
+            // The regression this guards: submit read the hidden DOM inputs,
+            // which ngModel writes asynchronously, so a fresh pick could be
+            // searched as the previous window.
+            setText('inputServProvCode', 'TESTAGCY');
+            setHost('US');
+            setEnvironment('PROD');
+            component.calendarMonth = new Date(2026, 7, 1);
+            component.pickDay(dayAt('2026-08-20'));
+            component.pickDay(dayAt('2026-08-21'));
+
+            submit();
+
+            const from = Number(openedUrl().searchParams.get('from_ts'));
+            expect(new Date(from).toISOString().slice(0, 10)).toBe('2026-08-20');
         });
 
         it('a single click selects that whole day', () => {
@@ -569,72 +606,80 @@ describe('AppComponent (characterization)', () => {
             expect(component.activeEndCalendarValue).toBe('2026-08-25T23:59');
         });
 
-        it('keeps the Timeframe dropdown alongside the picker', () => {
-            // Requested explicitly: the presets answer "recently" and the
-            // picker answers "that specific day".
-            component.toggleRangePicker();
-            fixture.detectChanges();
+        it('restores the whole day without touching the dates', () => {
+            /*
+             * Narrowing the time is the common edit -- find the day, cut to the
+             * minutes -- so undoing it needs to be one click rather than
+             * retyping 00:00 and 23:59.
+             */
+            component.activeBeginCalendarValue = '2026-07-27T09:18';
+            component.activeEndCalendarValue = '2026-07-29T09:25';
 
-            expect(fixture.nativeElement.querySelector('#selectedTimeframe')).toBeTruthy();
-            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeTruthy();
-        });
-    });
-
-    describe('date picking', () => {
-        /*
-         * Reported: "since today is only 4:15pm if I select a prior date, it
-         * doesn't update the time. It should be updating it to a full day."
-         * A datetime-local input keeps its time when only the date changes, so
-         * picking 27 July mid-afternoon started the window at 16:15 and
-         * silently dropped the morning.
-         */
-        it('snaps a past date to the whole day', () => {
-            component.activeBeginCalendarValue = '2026-09-03T16:15';
-            component.activeEndCalendarValue = '2026-09-03T16:15';
-
-            component.onBeginDateChange('2026-07-27T16:15');
+            component.resetTimesToWholeDay();
 
             expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
-            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+            expect(component.activeEndCalendarValue).toBe('2026-07-29T23:59');
         });
 
-        it('leaves a hand-typed time alone', () => {
-            /*
-             * The load-bearing case. The workflow is to search wide, find the
-             * minute, then type an exact time -- so snapping on every edit
-             * would undo the narrowing. Only a DATE change snaps.
-             */
-            component.activeBeginCalendarValue = '2026-07-27T00:00';
-            component.activeEndCalendarValue = '2026-07-27T23:59';
+        it('still clamps to now when the whole-day reset lands on today', () => {
+            component.activeBeginCalendarValue = '2026-08-27T09:00';
+            component.activeEndCalendarValue = '2026-08-27T09:30';
 
-            component.onBeginDateChange('2026-07-27T09:18');
-            expect(component.activeBeginCalendarValue).toBe('2026-07-27T09:18');
-            // And the end is untouched by a begin time edit.
-            expect(component.activeEndCalendarValue).toBe('2026-07-27T23:59');
+            component.resetTimesToWholeDay();
 
-            component.onEndDateChange('2026-07-27T09:25');
-            expect(component.activeEndCalendarValue).toBe('2026-07-27T09:25');
-        });
-
-        it('clamps the end to now when the day picked is today', () => {
-            // 23:59 today is in the future, and a future timestamp is rejected
-            // on submit -- so snapping there would turn a correct pick into an
-            // alert. NOW is fixed at 2026-08-27 14:30 local in this suite.
-            component.activeBeginCalendarValue = '2026-07-27T00:00';
-            component.onBeginDateChange('2026-08-27T00:00');
-
+            expect(component.activeBeginCalendarValue).toBe('2026-08-27T00:00');
             expect(component.activeEndCalendarValue).not.toBe('2026-08-27T23:59');
             expect(component.activeEndCalendarValue.startsWith('2026-08-27T14:3')).toBe(true);
         });
 
-        it('moving only the end date extends the window rather than resetting it', () => {
-            component.activeBeginCalendarValue = '2026-07-27T00:00';
-            component.activeEndCalendarValue = '2026-07-27T23:59';
+        it('keeps the time controls reachable after a range completes', () => {
+            /*
+             * The tension between "close when I select my dates" and editing
+             * times: completing a multi-day range closes the popover, so the
+             * time fields are only reachable by reopening -- and reopening must
+             * not disturb the dates already chosen.
+             */
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.rangeOpen = true;
+            component.pickDay(dayAt('2026-07-27'));
+            component.pickDay(dayAt('2026-07-30'));
+            expect(component.rangeOpen).toBe(false);
 
-            component.onEndDateChange('2026-07-29T23:59');
-
+            component.toggleRangeOpen();
+            expect(component.rangeOpen).toBe(true);
             expect(component.activeBeginCalendarValue).toBe('2026-07-27T00:00');
-            expect(component.activeEndCalendarValue).toBe('2026-07-29T23:59');
+            expect(component.activeEndCalendarValue).toBe('2026-07-30T23:59');
+
+            // And editing a time from there leaves the dates alone.
+            component.rangeStartTime = '09:18';
+            expect(component.activeBeginCalendarValue).toBe('2026-07-27T09:18');
+            expect(component.activeEndCalendarValue).toBe('2026-07-30T23:59');
+        });
+
+        it('keeps the Timeframe dropdown alongside the picker', () => {
+            // Requested explicitly: the presets answer "recently" and the
+            // picker answers "that specific day".
+            expect(fixture.nativeElement.querySelector('#selectedTimeframe')).toBeTruthy();
+            expect(fixture.nativeElement.querySelector('#rangeToggleBtn')).toBeTruthy();
+        });
+
+        it('positions the popover from the trigger so the card cannot clip it', () => {
+            /*
+             * `.form-panel` sets overflow: hidden, so an absolutely positioned
+             * popover from a mid-form field had its bottom cut off -- which hid
+             * the time controls entirely. Fixed positioning escapes that, but
+             * only if real viewport coordinates are set.
+             */
+            component.rangeOpen = false;
+            component.toggleRangeOpen();
+            fixture.detectChanges();
+
+            const pop = fixture.nativeElement.querySelector('.range-pop') as HTMLElement;
+            expect(pop).toBeTruthy();
+            expect(getComputedStyle(pop).position).toBe('fixed');
+            // A coordinate was actually computed rather than left at the default.
+            expect(pop.style.top).not.toBe('');
+            expect(pop.style.left).not.toBe('');
         });
     });
 
