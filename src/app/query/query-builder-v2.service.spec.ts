@@ -934,6 +934,29 @@ describe('QueryBuilderV2Service', () => {
         );
     });
 
+    it('always admits adapter errors that name no agency', () => {
+        /*
+         * The root cause of a real orphaned charge was one line:
+         * `RequestError: transaction-id missing in request`. It named neither
+         * the agency nor the record and carried no @SERV_PROV_CODE -- all three
+         * measured zero against it -- so no agency-scoped or record-scoped
+         * query could reach it. The only handle was the APM trace_id.
+         *
+         * 23.2% of this service's errors are like that: 638 of 2,754 over 7
+         * days, and they are the diagnostic families -- rejected webhooks,
+         * missing callback URLs, expired tokens.
+         *
+         * Errors only. Warns are 4,455 a week of known-universal cookie noise.
+         */
+        const { query, warnings } = v2.build(
+            input({ scope: { category: 'payment', option: 'forte' } })
+        );
+
+        expect(query).toContain('(-@SERV_PROV_CODE:* AND status:error)');
+        expect(query).not.toContain('status:(error OR warn))');
+        expect(warnings.some((w) => w.includes('name no agency are included'))).toBe(true);
+    });
+
     it('keeps requiring the agency facet when nothing identifies the event', () => {
         /*
          * The other half, and the reason this is conditional. The facet-less

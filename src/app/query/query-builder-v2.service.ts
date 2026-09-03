@@ -1089,7 +1089,16 @@ export class QueryBuilderV2Service implements QueryEngine {
       // The target's agency data is not uniform across its own environments, so
       // it supplies the whole clause rather than choosing between the shapes
       // below. See ServiceTarget.agencyClause.
-      clauses.push(target.agencyClause(agency.toUpperCase(), agency.toLowerCase()));
+      const own = target.agencyClause(agency.toUpperCase(), agency.toLowerCase());
+      /*
+       * A typed identifier still widens an overridden clause. The payment
+       * adapter needs both halves: its own clause admits facet-less ERRORS
+       * always, and with an identifier in hand every facet-less line becomes
+       * safe, because the identifier is doing the filtering.
+       */
+      clauses.push(
+        relaxAgency ? `(${own.replace(/^\(|\)$/g, '')} OR -@SERV_PROV_CODE:*)` : own
+      );
     } else if (target.agencyScope === 'attributes') {
       clauses.push(this.agencyScopeForServices(agency, target.agencyFacets, relaxAgency));
     } else if (target.agencyScope === 'freetext') {

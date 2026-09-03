@@ -440,12 +440,63 @@ export interface ServiceDef {
   targets: ServiceTarget[];
 }
 
-/** payment-adapter-service. CONFIRMED to carry @SERV_PROV_CODE, both casings. */
+/**
+ * payment-adapter-service. CONFIRMED to carry @SERV_PROV_CODE, both casings.
+ *
+ * -----------------------------------------------------------------------------
+ * BUT 23% OF ITS ERRORS CARRY NO AGENCY, AND THEY ARE THE DIAGNOSTIC ONES.
+ * Added 2026-09-03 after a real SCOTTCOUNTYMN orphaned charge whose root cause
+ * was structurally unreachable.
+ * -----------------------------------------------------------------------------
+ * A terminal payment captured $203.50 and nothing was ever posted to the
+ * record. The explanation was one line:
+ *
+ *   com.accela.adapter.payment.api.model.RequestError: transaction-id missing
+ *   in request
+ *
+ * Forte had sent a `transaction.sale` webhook with no `transaction` block at
+ * all -- no id, no status, no authorization code -- so the adapter rejected it.
+ *
+ * That line names NEITHER the agency NOR the record and carries NO
+ * @SERV_PROV_CODE. All three measured at zero against it. No agency-scoped or
+ * record-scoped query can reach it; the only handle is the APM `trace_id`,
+ * which you can only get by finding a neighbouring line first and pivoting.
+ * The user's words on being shown it: "I don't even know how I would have found
+ * this."
+ *
+ * Measured over 7 days on this service:
+ *
+ *   all errors                    2,754
+ *   errors WITH an agency facet   2,116
+ *   errors with NO agency facet     638   (23.2%, unreachable at any setting)
+ *
+ * And they are real failures, not infrastructure noise. The families:
+ *   RequestError: transaction-id missing in request
+ *   UnauthorizedError: Missing Authorization header or valid PAYMENTS token
+ *   ProcessingError: Unable to retrieve public keys from Identity
+ *   ProcessingError: Callback URL missing in agency configuration
+ * -- that last one being the same misconfiguration class investigated on CRC
+ * the day before, from the opposite direction.
+ *
+ * So facet-less lines are accepted when they are ERRORS. 638 a week is 91 a
+ * day estate-wide, which is nothing. Warns are deliberately NOT included:
+ * 4,455 a week, dominated by the `Invalid cookie header` noise that is already
+ * known to be universal, so they would cost seven times as much for no signal.
+ *
+ * These lines belong to no agency, so a search returns other tenants' adapter
+ * errors alongside this one's. That is the honest trade -- the alternative is
+ * a root cause nobody can find -- and the target's note says so.
+ */
 const paymentAdapter: ServiceTarget = {
   field: 'service',
   values: ['payment-adapter-service'],
   envClause: platformEnvClause,
   agencyScope: 'attributes',
+  agencyClause: (upper, lower) =>
+    `(@agencycode:${upper} OR @Agency:*${upper}* OR @Properties.log.Agency:*${upper}*` +
+    ` OR @usr.agency:*${upper}* OR @SERV_PROV_CODE:*${lower}* OR @SERV_PROV_CODE:*${upper}*` +
+    ` OR (-@SERV_PROV_CODE:* AND status:error))`,
+  note: 'Payment adapter errors that name no agency are included, because 23% of this service\'s errors carry no agency field and those are the ones that explain a failure -- a rejected webhook, a missing callback URL, an expired token. They cannot be attributed, so a few will belong to other agencies; check the timestamp against your payment before acting on one.',
 };
 
 /**
