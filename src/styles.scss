@@ -44,6 +44,24 @@ $brand-dark: #55158a;
 $brand-tint: #f4eefb;
 $brand-line: rgba(107, 27, 174, 0.2);
 
+/* ---------------------------------------------------------------------------
+   ONE definition of the disclosure chevron, for every control that has one.
+   ---------------------------------------------------------------------------
+   A custom property rather than a Sass variable, because it is needed in three
+   places across two stylesheets: the select in each of the two `@supports`
+   branches, and the Time range trigger, which is a button in the component
+   stylesheet. A Sass variable cannot cross that file boundary; a custom
+   property inherits into the component.
+
+   Three literal copies is how they diverged in the first place -- the selects
+   ended up on Chrome's native `::picker-icon` while the button kept this SVG,
+   and the mismatch was visible on the form. Kept in one place so the next
+   change cannot separate them again.
+   --------------------------------------------------------------------------- */
+:root {
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%236b1bae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+}
+
 @supports (appearance: base-select) {
   select.form-control {
     appearance: base-select;
@@ -65,11 +83,28 @@ $brand-line: rgba(107, 27, 174, 0.2);
     border: 1px solid $brand-line;
     border-radius: 8px;
     background: #fff;
-    background-image: none;
     color: #1f2330;
     font-size: 1rem;
     line-height: 1.5;
     text-align: left;
+
+    // ONE CHEVRON FOR EVERY CONTROL ON THE FORM.
+    //
+    // This used to be `background-image: none`, leaving the select to draw
+    // Chrome's native `::picker-icon`. The Time range trigger is a button and
+    // has no picker icon, so it drew the inline SVG from the `@supports not`
+    // fallback instead -- two different glyphs side by side, which is what was
+    // reported: "The carot for the time range is different than all the other
+    // ones."
+    //
+    // Matching a native glyph by eye is guesswork, so both sides use this SVG
+    // instead. Identical by construction rather than by approximation: same
+    // artwork, same 15px, same `right 11px center`, same stroke.
+    background-image: var(--chevron);
+    background-repeat: no-repeat;
+    background-position: right 11px center;
+    background-size: 15px 15px;
+    padding-right: 34px;
   }
 
   select.form-control:focus-visible {
@@ -78,14 +113,16 @@ $brand-line: rgba(107, 27, 174, 0.2);
     box-shadow: 0 0 0 3px rgba(107, 27, 174, 0.24);
   }
 
-  // The disclosure arrow, now a real pseudo-element rather than a background.
+  // Hidden in favour of the shared background chevron above. The native icon
+  // was the only thing the Time range trigger could not reproduce, since a
+  // button has no picker icon of its own.
+  //
+  // The open-state rotation goes with it -- a background image cannot be
+  // rotated without a pseudo-element to hang it on. Five controls that agree
+  // beats four that rotate and one that does not, and the popup or picker
+  // being on screen already says the control is open.
   select.form-control::picker-icon {
-    color: $brand;
-    transition: transform 120ms ease;
-  }
-
-  select.form-control:open::picker-icon {
-    transform: rotate(180deg);
+    display: none;
   }
 
   // The popup.
