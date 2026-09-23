@@ -693,6 +693,69 @@ describe('AppComponent (characterization)', () => {
             expect(component.activeEndCalendarValue).toBe('2026-07-30T23:59');
         });
 
+        /*
+         * Reported 2026-09-22: set dates in the calendar, change your mind, go
+         * back to Timeframe -- and it did nothing. The earlier test called
+         * onTimeframeChange() directly, so it never went through the real
+         * select. These drive the DOM the way a user does.
+         */
+        async function chooseTimeframe(value: string) {
+            const select: HTMLSelectElement = fixture.nativeElement.querySelector('#selectedTimeframe');
+            select.value = value;
+            select.dispatchEvent(new Event('change'));
+            fixture.detectChanges();
+            await fixture.whenStable();
+            fixture.detectChanges();
+        }
+
+        function triggerText(): string {
+            return fixture.nativeElement.querySelector('#rangeToggleBtn').textContent.trim();
+        }
+
+        it('lets a Timeframe preset overwrite a calendar range', async () => {
+            fixture.detectChanges();
+            await fixture.whenStable();
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.pickDay(dayAt('2026-07-27'));
+            component.pickDay(dayAt('2026-07-30'));
+            fixture.detectChanges();
+            const before = triggerText();
+
+            await chooseTimeframe('Past 7 Days');
+
+            expect(component.activeBeginCalendarValue.slice(0, 10)).toBe('2026-08-20');
+            expect(component.activeEndCalendarValue.slice(0, 10)).toBe('2026-08-27');
+            expect(triggerText()).not.toBe(before);
+            // Named in the box, so it is plain that the preset replaced the dates.
+            expect(triggerText().startsWith('Past 7 Days · ')).toBe(true);
+        });
+
+        it('lets the SAME preset be re-chosen after the calendar was used', async () => {
+            // A real browser fires no change event when the option already
+            // selected is chosen again, and jsdom cannot show that -- it fires
+            // whatever is dispatched. So assert the precondition that makes it
+            // a real change: the dropdown stops claiming TODAY the moment the
+            // calendar takes over.
+            fixture.detectChanges();
+            await fixture.whenStable();
+            component.calendarMonth = new Date(2026, 6, 1);
+            component.pickDay(dayAt('2026-07-27'));
+            component.pickDay(dayAt('2026-07-30'));
+            fixture.detectChanges();
+            await fixture.whenStable();
+            fixture.detectChanges();
+
+            const select: HTMLSelectElement = fixture.nativeElement.querySelector('#selectedTimeframe');
+            expect(select.value).toBe('CUSTOM');
+            expect(select.selectedOptions[0].textContent?.trim()).toBe('Custom range');
+            expect(triggerText().startsWith('Jul 27')).toBe(true);
+
+            await chooseTimeframe('TODAY');
+
+            expect(component.activeBeginCalendarValue).toBe('2026-08-27T00:00');
+            expect(triggerText().startsWith('TODAY · ')).toBe(true);
+        });
+
         it('keeps the Timeframe dropdown alongside the picker', () => {
             // Requested explicitly: the presets answer "recently" and the
             // picker answers "that specific day".
@@ -735,10 +798,99 @@ describe('AppComponent (characterization)', () => {
         // The component is OnPush and submit() does not run change detection.
         fixture.detectChanges();
 
-        const note = fixture.nativeElement.querySelector('.window-note')?.textContent ?? '';
-        expect(note).toContain('Searching');
-        expect(note).toContain('UTC');
+        // Moved 2026-09-22 from the note under the Generated Query block, which
+        // is now Compare-only: the Time range box states the window before
+        // Fetch, and its tooltip gives UTC.
+        const trigger: HTMLElement = fixture.nativeElement.querySelector('#rangeToggleBtn');
+        expect(trigger.textContent).toContain('Aug 27');
+        expect(trigger.getAttribute('title')).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} to .* UTC$/);
         expect(component.searchWindowUtc).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} to /);
+    });
+
+    describe('easter egg', () => {
+        function logo(): HTMLElement {
+            return fixture.nativeElement.querySelector('.logo');
+        }
+        function marquee(): string {
+            return fixture.nativeElement.querySelector('.dog-marquee')?.textContent.trim() ?? '';
+        }
+
+        it('wiggles and scrolls a thank-you after five quick pets, then settles', () => {
+            for (let i = 0; i < 5; i++) logo().click();
+            fixture.detectChanges();
+            expect(logo().classList).toContain('wiggle');
+            expect(marquee()).toBe('Good dog. Fetching logs since 2026.');
+            expect(fixture.nativeElement.querySelector('.app-header-text').classList).toContain('petted');
+
+            vi.advanceTimersByTime(1000);
+            fixture.detectChanges();
+            expect(logo().classList).not.toContain('wiggle');
+
+            vi.advanceTimersByTime(3100);
+            fixture.detectChanges();
+            expect(marquee()).toBe('');
+            expect(fixture.nativeElement.querySelector('.app-header-text').classList).not.toContain('petted');
+        });
+
+        it('starts over if the pets are too slow', () => {
+            for (let i = 0; i < 4; i++) logo().click();
+            vi.advanceTimersByTime(1600);
+            logo().click();
+            fixture.detectChanges();
+            expect(component.petted).toBe(false);
+        });
+    });
+
+    describe('scope status chip', () => {
+        function chip(): HTMLElement {
+            return fixture.nativeElement.querySelector('.scope-chip');
+        }
+        function openNotes(): string {
+            chip().click();
+            fixture.detectChanges();
+            return fixture.nativeElement.querySelector('#scopeNotes')?.textContent ?? '';
+        }
+
+        it('says an unscoped search filters nothing, naming the agency', () => {
+            component.engineMode = 'v2';
+            setText('inputServProvCode', 'okc');
+            setHost('US');
+            setEnvironment('PROD');
+            fixture.detectChanges();
+            expect(chip().textContent).toContain('Unfiltered · everything for OKC PROD');
+        });
+
+        it('counts and lists what a scope hides, live, before Fetch', () => {
+            component.engineMode = 'v2';
+            selectScope('documents', '');
+            expect(chip().textContent).toMatch(/Documents only · \d+ noise patterns hidden/);
+            const notes = openNotes();
+            expect(notes).toContain('TimeCost');
+            // EDMS Config is kept for this scope, and says so.
+            expect(notes).toContain('Kept because this scope needs them');
+            expect(notes).toContain('EDMS configuration dumps');
+        });
+
+        it('drops the chronic patterns from the count once they are included', () => {
+            component.engineMode = 'v2';
+            selectScope('documents', '');
+            const before = Number(chip().textContent?.match(/(\d+) noise/)?.[1]);
+            openNotes();
+            (fixture.nativeElement.querySelector('.scope-notes-action') as HTMLElement).click();
+            fixture.detectChanges();
+            const after = Number(chip().textContent?.match(/(\d+) noise/)?.[1]);
+            expect(component.showChronic).toBe(true);
+            expect(after).toBeLessThan(before);
+        });
+
+        it('passes the engine notes through once the form is complete', () => {
+            component.engineMode = 'v2';
+            setText('inputServProvCode', 'OKC');
+            setHost('US');
+            setEnvironment('PROD');
+            selectScope('documents', '');
+            expect(openNotes()).toContain('limited to documents-related lines');
+        });
     });
 
     it('names every missing required field in one alert', () => {

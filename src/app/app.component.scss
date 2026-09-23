@@ -219,6 +219,68 @@
   display: block;
 }
 
+/* Easter egg: a happy wiggle when the dog is petted, and the thank-you
+   scrolling across the band behind it.
+
+   Deliberately NOT gated on prefers-reduced-motion. It first was, and nobody
+   saw it: Windows Server and most RDP sessions ship with "Show animations in
+   Windows" off, which Chrome reports as reduced motion. It only ever runs
+   after five deliberate clicks and lasts four seconds, so it plays anyway. */
+.logo {
+  position: relative;
+  z-index: 1;
+}
+
+.logo.wiggle {
+  transform-origin: 50% 90%;
+  animation: dog-wiggle 900ms ease-in-out;
+}
+
+@keyframes dog-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  15% { transform: rotate(-7deg); }
+  30% { transform: rotate(6deg); }
+  45% { transform: rotate(-5deg); }
+  60% { transform: rotate(4deg); }
+  75% { transform: rotate(-2deg); }
+}
+
+/* The header's overflow: hidden is what makes this work: the text enters from
+   the right edge and leaves by the left, clipped to the band's rounded box,
+   passing under the logo on its way in. */
+.app-header {
+  position: relative;
+}
+
+.app-header-text {
+  transition: opacity 250ms ease;
+}
+
+.app-header-text.petted {
+  opacity: 0;
+}
+
+.dog-marquee {
+  position: absolute;
+  top: 50%;
+  white-space: nowrap;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--brand-dark);
+  animation: dog-marquee 4s linear forwards;
+}
+
+@keyframes dog-marquee {
+  from {
+    left: 100%;
+    transform: translate(0, -50%);
+  }
+  to {
+    left: 0;
+    transform: translate(-100%, -50%);
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Form rhythm
    --------------------------------------------------------------------------- */
@@ -363,6 +425,141 @@ label {
    putting the trigger there would mean anyone clicking to read toggled the
    setting instead.
    --------------------------------------------------------------------------- */
+/* The one phrase in the raw-logs label that decides when to use it. Quiet on
+   purpose -- the loud version lives on the rehydration tag, where it only
+   appears when it applies. 500 is a loaded Roboto weight, so no faux bold. */
+.raw-safe {
+  color: var(--brand);
+  font-weight: 500;
+}
+
+/* Scope status chip. One line under the Scope row; details open inline. */
+.scope-status {
+  margin: -4px 0 10px;
+}
+
+.scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid var(--brand-line);
+  border-radius: 999px;
+  background: var(--field-bg);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scope-chip.scoped {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+}
+
+.scope-chip.raw {
+  background: #fff3cd;
+  border-color: #f0d98a;
+  color: #7a5b00;
+}
+
+.scope-chip:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.scope-chip-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.scope-notes {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--brand-line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.scope-notes ul {
+  margin: 2px 0 8px;
+  padding-left: 18px;
+}
+
+.scope-notes-head {
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.scope-notes-real {
+  margin-left: 4px;
+  color: #7a5b00;
+  font-style: italic;
+}
+
+.scope-notes-action {
+  padding: 0;
+  margin: -4px 0 8px;
+  font-size: 12px;
+}
+
+/* Same look as the Raw logs chip -- the two say the same kind of thing ("this
+   search is not the ordinary one"), so they share one style. Two louder
+   versions were tried first, Bootstrap's warning badge and brand purple on
+   yellow with a dot, and both were too jarring beside the rest of the card. */
+.range-rehydrate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-left: 6px;
+  padding: 1px 9px;
+  border: 1px solid #f0d98a;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a5b00;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* Reads as part of the tag, not as a separate control: same colour, a dotted
+   underline to say it is clickable. One style for both states -- "use Raw
+   logs?" turns it on, "Raw logs on" turns it back off. */
+.range-rehydrate-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    text-decoration-style: solid;
+    outline: none;
+  }
+}
+
+.range-rehydrate-sep {
+  opacity: 0.6;
+}
+
 .info {
   position: relative;
   display: inline-flex;
@@ -1081,6 +1278,11 @@ input[type='datetime-local'] {
 
   .query-open {
     margin-left: auto;
+  }
+
+  .query-toggle {
+    padding: 0;
+    font-size: 13px;
   }
 
   .query-text {

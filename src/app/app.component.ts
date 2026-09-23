@@ -4,15 +4,28 @@ import { LegacyQueryBuilderService } from './query/legacy-query-builder.service'
 import { QueryBuilderV2Service } from './query/query-builder-v2.service';
 import { RecentSearch, RecentSearchesService } from './query/recent-searches.service';
 import { EngineId, QueryInput, QueryResult } from './query/query-input.model';
+import { CHRONIC_PATTERNS, ROUTINE_CHATTER } from './query/noise.config';
 import {
+  activeScopeExtras,
   fieldsFor,
   findCategory,
+  findOption,
   ScopeField,
   ScopeGuidance,
   ScopeOption,
   SCOPES,
   scopeSuppliesOwnLogs,
 } from './query/scopes.config';
+
+/** What the scope status chip says, and what its details list. */
+export interface ScopeStatus {
+  tone: 'raw' | 'open' | 'scoped';
+  label: string;
+  hidden: { what: string; chronic: boolean }[];
+  kept: string[];
+  notes: string[];
+  chronicHidden: boolean;
+}
 
 /** Which engine(s) to run for a submission. */
 export type EngineMode = 'v2' | 'legacy' | 'compare';
@@ -73,6 +86,13 @@ export class AppComponent {
   host: string = '';
   environment: string = '';
   selectedTimeframe: string = 'TODAY';
+  /*
+   * What the Timeframe dropdown shows once the calendar or the time fields have
+   * taken over. Without it the dropdown kept claiming the last preset, so
+   * choosing that preset again was not a change, no event fired, and the preset
+   * appeared to do nothing -- reported 2026-09-22 after a calendar pick.
+   */
+  static readonly CUSTOM_TIMEFRAME = 'CUSTOM';
   beginTimestamp: number = 0;
   endTimestamp: number = 0;
   activeBeginCalendarValue: string = '';
@@ -105,6 +125,8 @@ export class AppComponent {
 
   /** Populated on submit; drives the preview panel. */
   previews: QueryPreview[] = [];
+  /** Whether the generated query text is expanded. Collapsed by default. */
+  showQueryText = false;
 
   /*
    * -------------------------------------------------------------------------
@@ -348,6 +370,142 @@ export class AppComponent {
    */
   includeIis = false;
 
+  /*
+   * The scope status chip under the Scope dropdown. Replaced the notes under
+   * the Generated Query block on 2026-09-22: there they arrived only after
+   * Fetch, below the form, as paragraphs -- the place least likely to be read.
+   * The chip is one line beside the control it describes, live as the form
+   * changes, with the detail one click away.
+   *
+   * The label comes from the scope state alone so it is right even on a
+   * half-filled form. The notes come from the engine itself, built from the
+   * live page values, so they cannot drift from what Fetch will actually do.
+   */
+  scopeNotesOpen = false;
+
+  get scopeStatus(): ScopeStatus {
+    const status: ScopeStatus = {
+      tone: 'open',
+      label: '',
+      hidden: [],
+      kept: [],
+      notes: this.liveEngineNotes(),
+      chronicHidden: false,
+    };
+
+    if (this.rawMode) {
+      status.tone = 'raw';
+      status.label = 'Raw logs · nothing filtered';
+      return status;
+    }
+
+    const category = findCategory(this.scopeCategory);
+    if (!category) {
+      const agency = this.liveValue('inputServProvCode').trim().toUpperCase();
+      const env = this.liveValue('inputEnvironment');
+      const target =
+        agency && env && env !== '--SELECT--' ? `${agency} ${env}` : 'this agency and environment';
+      status.label = `Unfiltered · everything for ${target}`;
+      return status;
+    }
+
+    // Same exception lists the engine applies, so the count is the real one.
+    const { chatterExceptions, chronicExceptions } = activeScopeExtras(
+      this.scopeCategory,
+      this.scopeOption || undefined,
+      this.scopeFieldValues
+    );
+    for (const p of ROUTINE_CHATTER) {
+      if (chatterExceptions.includes(p.phrase)) status.kept.push(p.what);
+      else status.hidden.push({ what: p.what, chronic: false });
+    }
+    for (const p of CHRONIC_PATTERNS) {
+      if (chronicExceptions.includes(p.phrase)) status.kept.push(p.what);
+      else if (!this.showChronic) status.hidden.push({ what: p.what, chronic: true });
+    }
+    status.chronicHidden = status.hidden.some((h) => h.chronic);
+
+    const option = findOption(this.scopeCategory, this.scopeOption || undefined);
+    const name = option ? `${category.label} / ${option.label}` : category.label;
+    status.tone = 'scoped';
+    status.label = `${name} only · ${status.hidden.length} noise patterns hidden`;
+    return status;
+  }
+
+  /*
+   * The engine's own notes for the form as it stands. The two chronic lines
+   * are dropped because the chip lists those patterns individually; every
+   * other note is shown as the engine wrote it. Empty until the form is
+   * complete enough to build, which is the same point Fetch would work.
+   */
+  private liveEngineNotes(): string[] {
+    const input: QueryInput = {
+      ...this.buildQueryInput(),
+      servProvCode: this.liveValue('inputServProvCode'),
+      host: this.liveValue('inputHost'),
+      environment: this.liveValue('inputEnvironment'),
+      applications: this.getCheckedApplications(),
+      additionalServices: this.getCheckedAdditionalServices(),
+    };
+    if (!input.servProvCode.trim() || input.host === '--SELECT--' || !input.environment) return [];
+    if (input.environment === '--SELECT--') return [];
+    const result = this.v2Engine.build(input);
+    if (result.errors.length || !result.query) return [];
+    return result.warnings.filter(
+      (w) => !w.startsWith('Hidden because') && !w.startsWith('Kept because')
+    );
+  }
+
+  private liveValue(id: string): string {
+    return (document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null)?.value ?? '';
+  }
+
+  /** Whether the chosen start is past the live window, as the picker shows it. */
+  get rangeNeedsRehydration(): boolean {
+    const begin = new Date(this.activeBeginCalendarValue).getTime();
+    return !Number.isNaN(begin) && this.isTimestampMoreThanFifteenDaysAgo(begin);
+  }
+
+  /** The picker's window in UTC, for the trigger's tooltip. */
+  get rangeSummaryUtc(): string {
+    const b = new Date(this.activeBeginCalendarValue);
+    const e = new Date(this.activeEndCalendarValue);
+    if (Number.isNaN(b.getTime()) || Number.isNaN(e.getTime())) return '';
+    const fmt = (d: Date) => d.toISOString().slice(0, 16).replace('T', ' ');
+    return `${fmt(b)} to ${fmt(e)} UTC`;
+  }
+
+  /*
+   * Easter egg, added 2026-09-22: click the dog five times in quick succession
+   * and it wiggles, and the tagline says thank you for four seconds. Touches
+   * nothing but these two flags. No cursor change or hint, so it stays found
+   * rather than advertised.
+   */
+  petted = false;
+  wiggling = false;
+  private pets = 0;
+  private petResetTimer?: ReturnType<typeof setTimeout>;
+
+  onLogoClick() {
+    // Five clicks with no gap longer than 1.5s. Slower clicking starts over.
+    clearTimeout(this.petResetTimer);
+    this.pets++;
+    this.petResetTimer = setTimeout(() => (this.pets = 0), 1500);
+    if (this.pets < 5) return;
+
+    this.pets = 0;
+    this.petted = true;
+    this.wiggling = true;
+    setTimeout(() => {
+      this.wiggling = false;
+      this.cdr.markForCheck();
+    }, 900);
+    setTimeout(() => {
+      this.petted = false;
+      this.cdr.markForCheck();
+    }, 4000);
+  }
+
   onIncludeToggle(which: 'chronic' | 'indexer' | 'emse' | 'iis', on: boolean) {
     if (which === 'chronic') this.showChronic = on;
     if (which === 'indexer') this.includeIndexer = on;
@@ -523,7 +681,11 @@ export class AppComponent {
         hour: 'numeric',
         minute: '2-digit',
       });
-    return `${fmt(b)} – ${fmt(e)}`;
+    // Name the preset that produced the range, so choosing one after a
+    // calendar pick visibly overwrites it rather than just shifting the dates.
+    const preset =
+      this.selectedTimeframe === AppComponent.CUSTOM_TIMEFRAME ? '' : `${this.selectedTimeframe} · `;
+    return `${preset}${fmt(b)} – ${fmt(e)}`;
   }
 
   get calendarMonthLabel(): string {
@@ -577,6 +739,7 @@ export class AppComponent {
 
   pickDay(day: CalendarDay) {
     if (day.disabled) return;
+    this.selectedTimeframe = AppComponent.CUSTOM_TIMEFRAME;
 
     const startKey = this.activeBeginCalendarValue.slice(0, 10);
 
@@ -612,6 +775,7 @@ export class AppComponent {
   set rangeStartTime(value: string) {
     if (!value) return;
     this.activeBeginCalendarValue = `${this.activeBeginCalendarValue.slice(0, 10)}T${value}`;
+    this.selectedTimeframe = AppComponent.CUSTOM_TIMEFRAME;
     this.previews = [];
   }
 
@@ -629,6 +793,7 @@ export class AppComponent {
   set rangeEndTime(value: string) {
     if (!value) return;
     this.activeEndCalendarValue = `${this.activeEndCalendarValue.slice(0, 10)}T${value}`;
+    this.selectedTimeframe = AppComponent.CUSTOM_TIMEFRAME;
     this.previews = [];
   }
 
@@ -642,6 +807,8 @@ export class AppComponent {
      */
     this.extending = false;
     this.rangeOpen = false;
+    // Not selectable, but guard anyway: it names a range, it cannot compute one.
+    if (this.selectedTimeframe === AppComponent.CUSTOM_TIMEFRAME) return;
 
     const currentDate = new Date();
     let beginTimestampDate = new Date();

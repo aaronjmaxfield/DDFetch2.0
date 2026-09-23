@@ -33,17 +33,19 @@ If you change one line of code, rebuild `docs/`.
 
 **One non-Chrome browser.** The dropdown work uses `appearance: base-select` and `::picker(select)`. Both are correctly gated behind `@supports`, with a fallback, so nothing should break — but the "always open downwards" fix only applies in the supported branch. Open the form in Firefox, expand Scope and Advanced, and confirm the dropdowns still open downwards and the card has no scrollbar.
 
-**Three real tickets, someone who is not the author.** Where they hesitate is the actual defect list. In particular watch whether they notice the warnings under the generated query, because several of them are the difference between a correct reading and a wrong one.
+**Three real tickets, someone who is not the author.** Where they hesitate is the actual defect list. In particular watch whether they notice the Scope chip under the Scope dropdown and open it — its notes say what the search hid and why, and several of them are the difference between a correct reading and a wrong one. And for anything older than 15 days, whether they take the `use Raw logs?` offer on the rehydration tag.
 
 ## What to tell the first users
 
-Three things, because each one turns a silently wrong answer into a correct one:
+Four things, because each one turns a silently wrong answer into a correct one:
 
-1. **The window is not the query.** The panel now states the window being searched, in local time and UTC. A search that returns nothing is far more often a window that ended before the event than a bad query. This has already happened once in testing.
+1. **The window is not the query.** The Time range box states the window before you Fetch, and hovering it gives the same window in UTC. A search that returns nothing is far more often a window that ended before the event than a bad query. This has already happened once in testing.
 
-2. **ADS results are not agency-specific.** ADS records no agency anywhere — not in a field, not in the message text. Those results cover every agency in the environment, and all of the ADS errors sit in a file with no agency at all, so "narrow ADS to my agency and look for errors" cannot work. The tool says so in the warnings.
+2. **ADS results are not agency-specific.** ADS records no agency anywhere — not in a field, not in the message text. Those results cover every agency in the environment, and all of the ADS errors sit in a file with no agency at all, so "narrow ADS to my agency and look for errors" cannot work. The tool says so in the Scope chip's notes.
 
 3. **A thin ACDS result outside Asia-Pacific is expected.** Australian production carries roughly 99 times US production, and Canada and Oregon record none. Empty does not mean nothing happened.
+
+4. **Rehydrating? Use Raw logs.** A search older than 15 days rehydrates from archive, and the query goes into the rehydration itself — whatever a filter removed is never pulled. The rehydration tag beside the Time range offers `use Raw logs?`; take it, then narrow in Datadog. Raw logs is also the answer whenever an error you expected to see is missing.
 
 ## Known gaps, deliberately shipped
 

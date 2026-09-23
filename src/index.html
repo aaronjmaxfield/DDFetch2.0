@@ -5,9 +5,20 @@
   <title>DDFETCH 2.0</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- The DDFetch mark: the white D-and-magnifier on the brand purple, with a
+       drop shadow and a gold star on the corner, settled 2026-09-23 after
+       trying a tennis ball and two DF monograms. The 512px master and its
+       generator script are kept with the project's design files. The .ico
+       carries 16/32/48 for tabs and bookmarks; the 192px PNG is what high-DPI
+       screens and "add to home screen" pick. -->
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192.png">
   <link rel="preconnect" href="https://fonts.gstatic.com">
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+  <!-- 700 is load-bearing: the styles and every <strong> ask for bold, and
+       without a real bold face the browser synthesises one by smearing the
+       regular glyphs -- visibly fuzzy at the 11-12px the notes use. Added
+       2026-09-22 after exactly that was reported. 600 resolves to 700. -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <!-- Font Awesome provides the help icon. Moved here from the component
        template, which also used to pull in a conflicting Bootstrap 4. -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">

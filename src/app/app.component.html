@@ -120,14 +120,24 @@
       <form>
         <!-- Title and logo -->
         <header class="app-header">
-          <div class="app-header-text">
+          <div class="app-header-text" [class.petted]="petted">
             <h1>
               DDFETCH
               <span class="version-chip">2.0</span>
             </h1>
             <p class="app-tagline">Datadog query builder for Accela</p>
           </div>
-          <img src="assets/logo.jpeg" alt="DDFETCH 2.0 logo" class="logo" />
+          @if (petted) {
+            <span class="dog-marquee" aria-live="polite">Good dog. Fetching logs since 2026.</span>
+          }
+          <!-- Easter egg: pet the dog. See onLogoClick(). -->
+          <img
+            src="assets/logo.jpeg"
+            alt="DDFETCH 2.0 logo"
+            class="logo"
+            [class.wiggle]="wiggling"
+            (click)="onLogoClick()"
+          />
         </header>
 
         <!-- ServProvCode, Host, Environment -->
@@ -245,13 +255,39 @@
                 <option value="Past 3 Days">Past 3 Days</option>
                 <option value="Past 7 Days">Past 7 Days</option>
                 <option value="Past 15 Days">Past 15 Days</option>
+                <!-- Shown, never chosen: the calendar sets it. See CUSTOM_TIMEFRAME. -->
+                <option value="CUSTOM" disabled>Custom range</option>
               </select>
             </div>
 
             <!-- col-md-8 so the row fills the card width, matching the
                  ServProvCode / Host / Environment row above it. -->
             <div class="col-md-8 mb-2">
-              <label for="rangeToggleBtn">Time range</label>
+              <label for="rangeToggleBtn">
+                Time range
+              </label>
+              <!--
+                Said before Fetch, not after: the Generated Query block that used
+                to carry this badge is gone. Outside the label on purpose -- a
+                button inside a label also activates the labelled control, which
+                would open the range picker.
+
+                The Raw logs advice lives HERE rather than as emphasis on the
+                Raw logs label: it appears only when it applies, beside the
+                choice that made it apply, and one click acts on it. Permanent
+                bold on a label everyone sees every time becomes wallpaper.
+              -->
+              <!-- Text sits flush against its tags on purpose: any line break
+                   inside the pill renders as a leading space, and inside the
+                   button it is underlined along with the words. Spacing comes
+                   from the pill's gap instead. -->
+              @if (rangeNeedsRehydration) {
+                <span class="range-rehydrate"
+                  ><span>rehydration required</span
+                  ><span class="range-rehydrate-sep" aria-hidden="true">·</span
+                  >@if (rawMode) {<button type="button" class="range-rehydrate-action" (click)="onRawModeToggle(false)">Raw logs on</button>} @else {<button type="button" class="range-rehydrate-action" (click)="onRawModeToggle(true)">use Raw logs?</button>}</span
+                >
+              }
               <div class="range-field">
                 <!-- The chevron is a background image rather than a glyph, so
                      it is the same artwork, size and position as the selects
@@ -262,6 +298,7 @@
                   class="form-control range-trigger"
                   [class.open]="rangeOpen"
                   [attr.aria-expanded]="rangeOpen"
+                  [attr.title]="rangeSummaryUtc"
                   (click)="toggleRangeOpen()"
                 >
                   <span>{{ rangeSummary }}</span>
@@ -474,6 +511,72 @@
             </div>
           }
         </div>
+
+        <!--
+          Scope status chip: what this search filters, one line, beside the
+          control that decides it. Details open inline rather than floating,
+          because .form-panel clips overflow. Not shown for Legacy, whose
+          filtering these notes do not describe.
+        -->
+        @if (engineMode !== 'legacy') {
+          @let s = scopeStatus;
+          <div class="scope-status">
+            <button
+              type="button"
+              class="scope-chip"
+              [class.scoped]="s.tone === 'scoped'"
+              [class.raw]="s.tone === 'raw'"
+              [attr.aria-expanded]="scopeNotesOpen"
+              aria-controls="scopeNotes"
+              (click)="scopeNotesOpen = !scopeNotesOpen"
+            >
+              <span class="scope-chip-icon" aria-hidden="true">i</span>
+              <span>{{ s.label }}</span>
+            </button>
+            @if (scopeNotesOpen) {
+              <div class="scope-notes" id="scopeNotes">
+                @if (s.hidden.length) {
+                  <div class="scope-notes-head">Hidden as noise</div>
+                  <ul>
+                    @for (h of s.hidden; track h.what) {
+                      <li>
+                        {{ h.what }}
+                        @if (h.chronic) {
+                          <span class="scope-notes-real">real warnings</span>
+                        }
+                      </li>
+                    }
+                  </ul>
+                  @if (s.chronicHidden) {
+                    <button
+                      type="button"
+                      class="btn btn-link btn-sm scope-notes-action"
+                      (click)="onIncludeToggle('chronic', true)"
+                    >
+                      Include the real warnings too
+                    </button>
+                  }
+                }
+                @if (s.kept.length) {
+                  <div class="scope-notes-head">Kept because this scope needs them</div>
+                  <ul>
+                    @for (k of s.kept; track k) {
+                      <li>{{ k }}</li>
+                    }
+                  </ul>
+                }
+                @if (s.notes.length) {
+                  <div class="scope-notes-head">Also note</div>
+                  <ul>
+                    @for (n of s.notes; track n) {
+                      <li>{{ n }}</li>
+                    }
+                  </ul>
+                }
+              </div>
+            }
+          </div>
+        }
 
         @if (scopeFields.length) {
           <div class="row form-row scope-fields">
@@ -704,27 +807,18 @@
                     (change)="onRawModeToggle($any($event.target).checked)"
                   />
                   <label for="rawModeCheckbox">
-                    Raw logs -- no filtering, and the safe choice for rehydration
+                    Raw logs -- no filtering, the <strong class="raw-safe">safe choice for rehydration</strong>
                   </label>
-                  <span
-                    class="info"
-                    tabindex="0"
-                    role="note"
-                    aria-label="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Two uses: when a scoped search came back thinner than you expected, and when you are rehydrating logs older than 15 days, because the query is baked into the rehydration and narrowing it means rehydrating again to get anything you left out."
-                    data-tip="Returns every line for the applications and services you selected, with no noise removal, no scope narrowing and no provider filter. Two uses: when a scoped search came back thinner than you expected, and when you are rehydrating logs older than 15 days, because the query is baked into the rehydration and narrowing it means rehydrating again to get anything you left out."
-                    >i</span
-                  >
                 </div>
+                <!--
+                  One note, cut down 2026-09-22 from two paragraphs plus an info
+                  tooltip that said the same thing a third time.
+                -->
                 <p class="section-note">
-                  Every line for what you selected. The Scope still chooses which services to search
-                  -- <code>Payment &gt; Forte</code> keeps the payment adapter in -- but none of its
-                  filters are applied and its fields are ignored. Expect a lot of results.
-                </p>
-                <p class="section-note">
-                  <strong>Worth turning on for anything older than 15 days.</strong> Those searches
-                  rehydrate from archive, and the query goes into the rehydration itself -- so
-                  whatever a filter removed is not merely hidden, it was never pulled, and getting it
-                  back means rehydrating the window a second time. Pull everything once instead.
+                  Returns every line for the services you picked, with no filters and no scope fields.
+                  Turn it on if you think the error or log line you need is missing. Also use it for
+                  searches older than 15 days: a rehydration only pulls what the query matches, so
+                  anything a filter leaves out means rehydrating again.
                 </p>
               </div>
             </div>
@@ -809,8 +903,17 @@
           </button>
         </div>
 
-        <!-- Generated query preview -->
-        @if (previews.length) {
+        <!--
+          Generated query preview -- Compare mode only.
+
+          Hidden for single-engine searches on 2026-09-22: not needed for
+          release, and the notes in it belong beside the controls they describe
+          rather than under the form. Compare keeps it because it deliberately
+          opens nothing itself -- its per-engine Open buttons live here, so
+          without them Compare could not search at all. Remove with the engine
+          selector.
+        -->
+        @if (previews.length && isCompareMode) {
           <div class="row form-row">
             <div class="col-md-12">
               <label><strong>Generated Query</strong></label>
@@ -836,6 +939,23 @@
                     @if (p.rehydrate) {
                       <span class="query-badge">rehydration required</span>
                     }
+                    @if (p.query) {
+                      <!--
+                        The query text is collapsed by default -- requested
+                        2026-09-22. It is hundreds of characters of exclusions a
+                        frontline user never reads, and it pushed the warnings
+                        (what was hidden, and why) below the fold. Kept one click
+                        away for anyone who needs to copy or check it.
+                      -->
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-link query-toggle"
+                        [attr.aria-expanded]="showQueryText"
+                        (click)="showQueryText = !showQueryText"
+                      >
+                        {{ showQueryText ? 'Hide query' : 'Show query' }}
+                      </button>
+                    }
                     @if (p.url) {
                       <button
                         type="button"
@@ -846,7 +966,7 @@
                       </button>
                     }
                   </div>
-                  @if (p.query) {
+                  @if (p.query && showQueryText) {
                     <code class="query-text">{{ p.query }}</code>
                   }
                   @for (w of p.warnings; track w) {

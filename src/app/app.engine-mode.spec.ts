@@ -162,6 +162,11 @@ describe('AppComponent engine modes', () => {
         expect(component.previews[0].query).toBe(legacy.build(input).query);
         expect(component.previews[1].query).toBe(v2.build(input).query);
 
+        // Collapsed by default; the text renders once the toggle is opened.
+        expect(fixture.nativeElement.querySelectorAll('.query-text').length).toBe(0);
+        fixture.nativeElement.querySelector('.query-toggle').click();
+        fixture.detectChanges();
+
         const rendered = Array.from(
             fixture.nativeElement.querySelectorAll('.query-text')
         ).map((n) => (n as HTMLElement).textContent);
@@ -267,7 +272,39 @@ describe('AppComponent engine modes', () => {
 
         expect(component.previews[0].rehydrate).toBe(true);
         expect(component.previews[0].url).toContain('historical-views');
-        expect(fixture.nativeElement.querySelector('.query-badge')).toBeTruthy();
+        // Stated beside the Time range now, before Fetch -- the preview block
+        // that used to carry the badge is Compare-only.
+        expect(fixture.nativeElement.querySelector('.range-rehydrate')).toBeTruthy();
+    });
+
+    it('toggles Raw logs from the rehydration tag, both ways', () => {
+        component.engineMode = 'v2';
+        fillValidForm();
+        const b = el('inputBeginTimestamp') as HTMLInputElement;
+        b.value = '2026-07-01T00:00';
+        b.dispatchEvent(new Event('input'));
+        fixture.detectChanges();
+
+        const action = fixture.nativeElement.querySelector('.range-rehydrate-action') as HTMLElement;
+        expect(action.textContent).toContain('use Raw logs?');
+        action.click();
+        fixture.detectChanges();
+
+        expect(component.rawMode).toBe(true);
+        expect(component.rangeOpen).toBe(false);
+
+        // The same spot turns it back off.
+        const off = fixture.nativeElement.querySelector('.range-rehydrate-action') as HTMLElement;
+        expect(off.textContent).toBe('Raw logs on');
+        off.click();
+        fixture.detectChanges();
+        expect(component.rawMode).toBe(false);
+
+        // No stray whitespace: it rendered as a leading space in the pill and
+        // was underlined inside the button.
+        const pill = fixture.nativeElement.querySelector('.range-rehydrate') as HTMLElement;
+        expect(pill.firstChild?.textContent).toBe('rehydration required');
+        expect((fixture.nativeElement.querySelector('.range-rehydrate-action') as HTMLElement).textContent).toBe('use Raw logs?');
     });
 
     // ------------------------------------------------------------------ errors
@@ -278,7 +315,7 @@ describe('AppComponent engine modes', () => {
 
         expect(alertSpy).toHaveBeenCalled();
         expect(openSpy).not.toHaveBeenCalled();
-        expect(fixture.nativeElement.querySelector('.query-error')).toBeTruthy();
+        // The alert is the channel; the on-page copy went with the preview block.
     });
 
     it('deduplicates the same error raised by both engines', () => {
