@@ -47,7 +47,7 @@ describe('QueryBuilderV2Service', () => {
          */
         const { query } = v2.build(input());
         expect(query).toContain(
-            '(service:av.biz AND *AGCY-* AND -@JNDI:* AND -@SERV_PROV_CODE:*)'
+            `(service:av.biz AND ("AGCY" OR "ID:AGCY" OR "N'AGCY'") AND -@JNDI:* AND -@SERV_PROV_CODE:*)`
         );
         // Not the bare form, which is what leaked.
         expect(query).not.toContain('service:av.biz AND *AGCY* AND');
@@ -115,7 +115,7 @@ describe('QueryBuilderV2Service', () => {
             const { query } = rawForte();
 
             // Biz.
-            expect(query).toContain('@JNDI:*agcy-prod*');
+            expect(query).toContain('@JNDI:(agcy-prod OR AGCY-PROD OR *\\:agcy-prod OR *\\:AGCY-PROD)');
             // ACA.
             expect(query).toContain('filename:agcy-prod*');
             /*
@@ -376,8 +376,8 @@ describe('QueryBuilderV2Service', () => {
         // do carry @SERV_PROV_CODE, and facet values are case sensitive.
         const { query } = v2.build(input({ additionalServices: ['Forte'] }));
 
-        expect(query).toContain('@SERV_PROV_CODE:*agcy*');
-        expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
+        expect(query).toContain('@SERV_PROV_CODE:(AGCY OR agcy OR *\\:AGCY OR *\\:agcy OR *\\:AGCY\\| OR AGCY-* OR agcy-*)');
+        expect(query).not.toContain('@SERV_PROV_CODE:*AGCY*');
     });
 
     it('A1: scopes payment services by environment using the platform env tag', () => {
@@ -551,7 +551,7 @@ describe('QueryBuilderV2Service', () => {
                 applications: ['Citizen Access', 'Civic Platform'],
             })
         );
-        expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
+        expect(query).toContain('@SERV_PROV_CODE:(AGCY OR agcy OR *\\:AGCY OR *\\:agcy OR *\\:AGCY\\| OR AGCY-* OR agcy-*)');
     });
 
     it('A5: OREGON CONFIG does collect ACA logs and must not warn', () => {
@@ -658,7 +658,7 @@ describe('QueryBuilderV2Service', () => {
 
         expect(query).toContain('filename:agcy-prod*');
         expect(query).not.toContain('filename:*agcy-prod*');
-        expect(query).toContain('@JNDI:*agcy-prod*');
+        expect(query).toContain('@JNDI:(agcy-prod OR AGCY-PROD OR *\\:agcy-prod OR *\\:AGCY-PROD)');
     });
 
     it('A6: OREGON TRAIN searches the hosts that actually serve it', () => {
@@ -747,7 +747,7 @@ describe('QueryBuilderV2Service', () => {
         expect(query).toContain('service:aca AND *AGCY* AND filename:*-nonprod1*');
         // The biz tier is here because it was ticked, not because ACA dragged it
         // in -- see the Citizen-Access-only test above.
-        expect(query).toContain('@SERV_PROV_CODE:*AGCY*');
+        expect(query).toContain('@SERV_PROV_CODE:(AGCY OR agcy OR *\\:AGCY OR *\\:agcy OR *\\:AGCY\\| OR AGCY-* OR agcy-*)');
     });
 
     it('A10: service:aca is exact, not a wildcard', () => {
@@ -794,7 +794,7 @@ describe('QueryBuilderV2Service', () => {
          * because facet values are case sensitive (SECUREPAYAUTO 38,160,
          * securepayauto 35,363).
          */
-        expect(query).toContain('@SERV_PROV_CODE:*agcy* OR @SERV_PROV_CODE:*AGCY*');
+        expect(query).toContain('@SERV_PROV_CODE:(AGCY OR agcy OR *\\:AGCY OR *\\:agcy OR *\\:AGCY\\| OR AGCY-* OR agcy-*)');
         expect(query).not.toContain('@agencycode');
         expect(query).not.toContain('@usr.agency');
         // The PCI cluster caveat must surface to the user.
@@ -1070,7 +1070,7 @@ describe('QueryBuilderV2Service', () => {
             '(-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn)))'
         );
         // The agency is still required where it exists.
-        expect(query).toContain('@SERV_PROV_CODE:*agcy*');
+        expect(query).toContain('@SERV_PROV_CODE:(AGCY OR agcy OR *\\:AGCY OR *\\:agcy OR *\\:AGCY\\| OR AGCY-* OR agcy-*)');
     });
 
     it('A13: reaches the ConfigStore agency through the request path as well as free text', () => {
@@ -1128,12 +1128,11 @@ describe('QueryBuilderV2Service', () => {
 
     it('maps AU and CA environment tokens onto their own hosts', () => {
         const au = v2.build(input({ host: 'AU', environment: 'PROD' })).query;
-        expect(au).toContain('@JNDI:*agcy-auprod*');
-        expect(au).toContain('@JNDI:*AGCY-AUPROD*');
+        expect(au).toContain('@JNDI:(agcy-auprod OR AGCY-AUPROD OR *\\:agcy-auprod OR *\\:AGCY-AUPROD)');
         expect(au).toContain('host:*auprd*');
 
         const ca = v2.build(input({ host: 'CA', environment: 'PROD' })).query;
-        expect(ca).toContain('@JNDI:*agcy-prodca*');
+        expect(ca).toContain('@JNDI:(agcy-prodca OR AGCY-PRODCA OR *\\:agcy-prodca OR *\\:AGCY-PRODCA)');
         expect(ca).toContain('host:*caprd*');
     });
 
@@ -1303,13 +1302,13 @@ describe('QueryBuilderV2Service', () => {
             expect(query).toContain("-@Properties.log.Agency:*");
         });
 
-        it("front-anchors the Construct agency and keeps the AZ sibling", () => {
+        it("matches the Construct agency exactly and keeps the AZ sibling", () => {
             // *DC* matched seven tenants over 7 days -- DC, AZDC, OAKLANDCO,
             // AZMERCEDCO, LADCR, LOVELANDCO, MERCEDCO. Anchoring keeps DC and
             // AZDC and drops the rest. Lossless for the real sibling shapes,
             // which are suffixes: {AGENCY}-TEST and {AGENCY}_MOBILE still match.
             const query = capiQuery();
-            expect(query).toContain("@Properties.log.Agency:(AGCY* OR AZAGCY*)");
+            expect(query).toContain("@Properties.log.Agency:(AGCY OR AGCY-* OR AGCY_* OR *-AGCY OR AZAGCY OR AZAGCY-* OR AZAGCY_*)");
             expect(query).not.toContain("@Properties.log.Agency:*AGCY*");
         });
 
@@ -1745,7 +1744,7 @@ describe('QueryBuilderV2Service', () => {
              * 3,193. Any short agency code leaks.
              */
             const { query, warnings } = v2.build(input({ includeEmse: true }));
-            expect(query).toContain("filename:emse.log AND *agcy-prod*");
+            expect(query).toContain('filename:emse.log AND "agcy-prod"');
             // The bare agency wildcard must never come back.
             expect(query).not.toContain("filename:emse.log AND *AGCY*");
             // And the partial coverage is announced, not hidden.
@@ -1772,6 +1771,97 @@ describe('QueryBuilderV2Service', () => {
                     }
                 }
             }
+        });
+    });
+
+    describe('exact agency matching (2026-09-23)', () => {
+        /*
+         * Both engines used to match agency codes as substrings, so a code inside
+         * a longer one pulled that agency in: 67% of LARA's result was MILARA and
+         * SANTACLARA, 62% of CFW's was ACFW, and CRC -- with no AU environment --
+         * returned 21 AU lines, all ECAN script names ending in "...DETAILSCRC".
+         * Measurements: research/AGENCY_MATCHING_FINDINGS.md.
+         */
+        const combos: Partial<QueryInput>[] = [
+            {},
+            { applications: ['Civic Platform', 'Citizen Access', 'CAPI'], includeEmse: true, includeIis: true },
+            { additionalServices: ['Forte'] },
+            { additionalServices: ['Paypal Commerce'] },
+            { additionalServices: ['SecurePay'] },
+            { additionalServices: ['ACDS'] },
+            { additionalServices: ['ADS'] },
+            { applications: ['Civic Platform', 'Citizen Access'], scope: { category: 'payment', option: 'custom' } },
+            // A typed identifier relaxes the payment agency filter. That path used
+            // to strip the clause's outer brackets with a regex, which would have
+            // cut the closing `)` off an exact clause.
+            { scope: { category: 'payment', option: 'forte', fields: { capId: '26CAP-00000-00001' } } },
+            { scope: { category: 'payment', option: 'securepay', fields: { capId: '26CAP-00000-00001' } } },
+        ];
+        const hosts: [string, string][] = [['US', 'PROD'], ['US', 'NONPROD1'], ['AU', 'SUPP'], ['CA', 'PROD'], ['OREGON', 'PROD']];
+
+        function each(fn: (q: string, label: string) => void) {
+            for (const [host, environment] of hosts)
+                for (const c of combos) {
+                    const r = v2.build(input({ servProvCode: 'CRC', host, environment, ...c }));
+                    if (r.query) fn(r.query, `${host}/${environment}/${JSON.stringify(c)}`);
+                }
+        }
+
+        it('leaves no substring agency match on any facet', () => {
+            each((q, label) => {
+                for (const bad of ['@SERV_PROV_CODE:*CRC*', '@SERV_PROV_CODE:*crc*', '@JNDI:*crc-', '@JNDI:*CRC-',
+                                   '@Agency:*CRC*', '@usr.agency:*CRC*', '@Properties.log.Agency:*CRC*', '@Properties.log.Agency:(CRC*'])
+                    expect(q, label).not.toContain(bad);
+            });
+        });
+
+        it('balances brackets on every path, including the relaxed payment filter', () => {
+            each((q, label) => {
+                let depth = 0, min = 0;
+                for (const ch of q) { if (ch === '(') depth++; if (ch === ')') depth--; min = Math.min(min, depth); }
+                expect(depth, label).toBe(0);
+                expect(min, label).toBe(0);
+            });
+        });
+
+        it('does not answer for another agency whose code ends in this one (CRC in AU)', () => {
+            const q = v2.build(input({ servProvCode: 'CRC', host: 'AU', environment: 'SUPP', applications: ['Civic Platform', 'Citizen Access'] })).query;
+            // The old `*CRC-*` matched ECAN's DOCUMENTCREATOR_GETRECORDDETAILSCRC.
+            expect(q).not.toContain('*CRC-*');
+            expect(q).toContain(`("CRC" OR "ID:CRC" OR "N'CRC'")`);
+            // Citizen Access free text only on lines no agency has claimed.
+            expect(q).toContain('AND -@agencycode:*)');
+        });
+
+        it('keeps a shorter code from matching a longer one it starts (MONTEREY / MONTEREYEH)', () => {
+            const q = v2.build(input({ servProvCode: 'MONTEREY', applications: ['Civic Platform', 'CAPI'] })).query;
+            expect(q).toContain('@SERV_PROV_CODE:(MONTEREY OR monterey OR ');
+            expect(q).toContain('@Properties.log.Agency:(MONTEREY OR MONTEREY-* OR MONTEREY_* OR *-MONTEREY');
+            // No front-anchored `MONTEREY*` (which reaches MONTEREYEH). The CAPI
+            // free-text fallback's `*MONTEREY*` is deliberate, hence the lookbehind.
+            expect(q).not.toMatch(/(?<![*A-Za-z])MONTEREY\*/);
+        });
+
+        it('matches a bogus code only exactly, so it cannot borrow a real agency (PAY / SECUREPAY)', () => {
+            const q = v2.build(input({ servProvCode: 'PAY', additionalServices: ['SecurePay'] })).query;
+            // The old form returned 90,839 SECUREPAYAUTO / SECUREPAYTEST lines a day.
+            expect(q).not.toMatch(/@SERV_PROV_CODE:\*PAY\*/);
+            expect(q).toContain('@SERV_PROV_CODE:(PAY OR pay OR ');
+        });
+
+        it("reaches the agency's own SQL literals, which a plain phrase cannot", () => {
+            // `SERV_PROV_CODE = N'CRC'` -- an apostrophe breaks "CRC"; CRC lost 22
+            // of its own SQL lines a week without this term.
+            const q = v2.build(input({ servProvCode: 'CRC' })).query;
+            expect(q).toContain(`"N'CRC'"`);
+        });
+
+        it('anchors prefixed values on the colon, so unseen prefixes still match', () => {
+            // `JNDI:crc-prod`, and the rare `JNDI:JNDI:crc-prod`, via `*\:`.
+            const q = v2.build(input({ servProvCode: 'CRC' })).query;
+            // String.raw so the backslash reaches the assertion unescaped.
+            expect(q).toContain(String.raw`*\:crc-prod`);
+            expect(q).toContain(String.raw`*\:CRC\|`);
         });
     });
 });

@@ -36,6 +36,9 @@
  * the civp taxonomy and nowhere else.
  */
 
+import { agencyAttrExact, spcExact } from './agency-match';
+
+
 export interface EnvironmentDef {
   /** Value shown in the Environment dropdown. */
   ui: string;
@@ -493,8 +496,8 @@ const paymentAdapter: ServiceTarget = {
   envClause: platformEnvClause,
   agencyScope: 'attributes',
   agencyClause: (upper, lower) =>
-    `(@agencycode:${upper} OR @Agency:*${upper}* OR @Properties.log.Agency:*${upper}*` +
-    ` OR @usr.agency:*${upper}* OR @SERV_PROV_CODE:*${lower}* OR @SERV_PROV_CODE:*${upper}*` +
+    `(@agencycode:${upper} OR ${agencyAttrExact('@Agency', upper, lower)} OR ${agencyAttrExact('@Properties.log.Agency', upper, lower)}` +
+    ` OR ${agencyAttrExact('@usr.agency', upper, lower)} OR ${spcExact(upper, lower)}` +
     ` OR (-@SERV_PROV_CODE:* AND status:error))`,
   note: 'Payment adapter errors that name no agency are included, because 23% of this service\'s errors carry no agency field and those are the ones that explain a failure -- a rejected webhook, a missing callback URL, an expired token. They cannot be attributed, so a few will belong to other agencies; check the timestamp against your payment before acting on one.',
 };
@@ -669,7 +672,7 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
          * eng-arch-pci lines, at a cost of 670 lines rather than 204,306.
          */
         agencyClause: (upper, lower) =>
-          `(@SERV_PROV_CODE:*${lower}* OR @SERV_PROV_CODE:*${upper}*` +
+          `(${spcExact(upper, lower)}` +
           ` OR (-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn))))`,
         note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci, and only there does the log carry an agency field -- the production and non-production PCI clusters record no agency at all, so their lines are returned for the whole cluster rather than just this agency. That is deliberate: those two clusters hold 1,232 of the service\'s 1,668 errors, and requiring an agency field there returned nothing. Unlike the standard payment adapter, this service ships debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results. Note also that SecurePay\'s Citizen Access handling is not currently working correctly and tags its lines with the epayments3 provider id rather than payrix, so a SecurePay result can look like a different adapter entirely -- the provider filter allows for that.',
       },

@@ -1,3 +1,4 @@
+import { agencyAttrExact, bizFreeText, capiAgency, emseBlob, jndiExact, spcExact } from './agency-match';
 import { Injectable } from '@angular/core';
 import {
   ADDITIONAL_SERVICES,
@@ -498,7 +499,9 @@ export class QueryBuilderV2Service implements QueryEngine {
     } else if (host.usesJndi && !env.jndiDead) {
       // Facet values are case sensitive, so both casings are needed. Real values
       // are {lower}-{lower} or {UPPER}-{UPPER}; no mixed pair was observed.
-      identity.push(`@JNDI:*${lower}-${env.jndi}*`, `@JNDI:*${upper}-${env.jndi.toUpperCase()}*`);
+      // Exact, not `*x-env*`: the substring form pulled in every code ENDING in
+      // this one (62% of CFW's result was ACFW). See agency-match.ts.
+      identity.push(jndiExact(upper, lower, env.jndi));
 
       /*
        * @SERV_PROV_CODE is a FALLBACK here, not a peer of @JNDI, and that
@@ -521,8 +524,10 @@ export class QueryBuilderV2Service implements QueryEngine {
        * exactly 0 for a given agency -- so the `-@JNDI:*` guard keeps the whole
        * population the arm was there for.
        */
-      identity.push(`(@SERV_PROV_CODE:*${upper}* AND -@JNDI:*)`);
-      identity.push(`(@SERV_PROV_CODE:*${lower}* AND -@JNDI:*)`);
+      // Exact since 2026-09-23 -- the "cross-tenant bleed" above was the
+      // substring form, and it was not only two-character codes: 67% of LARA's
+      // result was MILARA and SANTACLARA. See agency-match.ts.
+      identity.push(`(${spcExact(upper, lower)} AND -@JNDI:*)`);
 
       /*
        * -----------------------------------------------------------------------
@@ -543,6 +548,12 @@ export class QueryBuilderV2Service implements QueryEngine {
        * SANTAANA-PWK26-00000`. So a free-text arm reaches it, and the existing
        * free-text arm could not: that one is `service:aca AND *{AGENCY}*`, and
        * this is a biz line.
+       *
+       * CORRECTED 2026-09-23: `*{AGENCY}-*` was NOT anchored. Datadog ignores
+       * the hyphen, so it matched any word ENDING in the code -- ECAN's script
+       * `DOCUMENTCREATOR_GETRECORDDETAILSCRC` answered for CRC, MILARA's CAP
+       * IDs for LARA. It is now three whole-word phrases; see bizFreeText in
+       * agency-match.ts. The history below is kept for the measurements.
        *
        * ANCHORED ON `{AGENCY}-`, which is the whole reason this is affordable.
        * The bare `*{AGENCY}*` form repeats the emse.log mistake from earlier the
@@ -575,7 +586,7 @@ export class QueryBuilderV2Service implements QueryEngine {
        * zero error-status lines on both agencies measured.
        */
       identity.push(
-        `(service:av.biz AND *${upper}-* AND -@JNDI:* AND -@SERV_PROV_CODE:*)`
+        `(service:av.biz AND ${bizFreeText(upper)} AND -@JNDI:* AND -@SERV_PROV_CODE:*)`
       );
     } else {
       // Oregon has no @JNDI at all -- every value is EMPTY -- so the agency
@@ -583,7 +594,7 @@ export class QueryBuilderV2Service implements QueryEngine {
       // casings: values are overwhelmingly uppercase but not exclusively, and
       // the biz branch used to emit only the upper form while the service
       // branch emitted both.
-      identity.push(`@SERV_PROV_CODE:*${upper}*`, `@SERV_PROV_CODE:*${lower}*`);
+      identity.push(spcExact(upper, lower));
 
       if (host.usesJndi && env.jndiDead) {
         warnings.push(
@@ -656,7 +667,9 @@ export class QueryBuilderV2Service implements QueryEngine {
     if (!wantsBiz) {
       /* Not in scope. */
     } else if (input.includeEmse || env.emseIsPrimaryBizLog || forceEmse) {
-      identity.push(`(filename:emse.log AND *${lower}-${env.jndi}*)`);
+      // Phrase, not `*x-env*`: whole-word, so `milara-prod` no longer answers
+      // for `lara-prod`. See emseBlob in agency-match.ts.
+      identity.push(`(filename:emse.log AND ${emseBlob(lower, env.jndi)})`);
       warnings.push(
         'Script engine logs (emse.log) carry no agency field of any kind, so they cannot be filtered by agency. Only the lines that name this agency are included: the event-log uploads, plus any script output that mentions one of this agency\'s record IDs -- which is where a failing script names itself. A script error that mentions no record ID is still out of reach; for those, search filename:emse.log with your script name or trace ID directly in Datadog.'
       );
@@ -707,7 +720,16 @@ export class QueryBuilderV2Service implements QueryEngine {
           ? `filename:*${acaToken.slice(lower.length)}*`
           : `filename:${acaToken}*`;
         identity.push(`(service:aca AND @agencycode:${upper} AND ${envShape})`);
-        identity.push(`(service:aca AND *${upper}* AND ${envShape})`);
+        /*
+         * Untagged lines only (2026-09-23). A line tagged with ANOTHER agency's
+         * code is that agency's line, and this agency's tagged lines already
+         * come through the @agencycode arm above. Without the gate this arm was
+         * mostly other tenants: 76% of LARA's result (MILARA 456k a day), 26% of
+         * OKC's, and 819k a day for the bogus code PAY. What it keeps is small
+         * (1-611 lines a day, zero errors) -- and all of Oregon, whose 2.19M
+         * ACA lines a week carry no @agencycode at all.
+         */
+        identity.push(`(service:aca AND *${upper}* AND ${envShape} AND -@agencycode:*)`);
 
         /*
          * Page requests. Opt-in, because this population is enormous: LEECO
@@ -951,7 +973,19 @@ export class QueryBuilderV2Service implements QueryEngine {
        * The AZ prefix being the same tenant is a HYPOTHESIS, not measured. Drop
        * that arm if it turns out otherwise.
        */
-      `(@Properties.log.Agency:(${upper}* OR AZ${upper}*) OR (-@Properties.log.Agency:* AND *${upper}*))`,
+      /*
+       * Tightened again 2026-09-23 to exact shapes (capiAgency): the front
+       * anchor still let in codes STARTING with this one -- 99% of POL's result
+       * was POLKCO, 97% of MONTEREY's was MONTEREYEH / MONTEREYPARK -- and it
+       * missed `QA-INTG-X` values (76,301 STDTESTAUTO lines a week).
+       *
+       * The free-text fallback for unattributed lines deliberately stays a
+       * wildcard. The phrase form loses the agency's own GIS calls
+       * (`https://gis.okc.gov/...` is one word -- ~23k OKC lines a week), and
+       * `*.x.*` is identical to `*X*`. The cost is noise for short codes, bounded
+       * to Construct lines with no Agency attribute.
+       */
+      `(${capiAgency(upper)} OR (-@Properties.log.Agency:* AND *${upper}*))`,
     ];
 
     // Region comes from the cluster's env: tag, not from EnvName -- the AU
@@ -1097,7 +1131,8 @@ export class QueryBuilderV2Service implements QueryEngine {
        * safe, because the identifier is doing the filtering.
        */
       clauses.push(
-        relaxAgency ? `(${own.replace(/^\(|\)$/g, '')} OR -@SERV_PROV_CODE:*)` : own
+        // Wrapped, not stripped: an exact clause ends in its own `)`.
+        relaxAgency ? `(${own} OR -@SERV_PROV_CODE:*)` : own
       );
     } else if (target.agencyScope === 'attributes') {
       clauses.push(this.agencyScopeForServices(agency, target.agencyFacets, relaxAgency));
@@ -1166,7 +1201,7 @@ export class QueryBuilderV2Service implements QueryEngine {
      */
     if (relax) {
       const base = this.agencyScopeForServices(agency, only);
-      return `(${base.replace(/^\(|\)$/g, '')} OR -@SERV_PROV_CODE:*)`;
+      return `(${base} OR -@SERV_PROV_CODE:*)`;
     }
 
     /*
@@ -1178,21 +1213,16 @@ export class QueryBuilderV2Service implements QueryEngine {
      * -- and worse, it implies the tool checked something it did not.
      */
     if (only?.length) {
-      const parts = only.flatMap((f) =>
-        f === '@SERV_PROV_CODE'
-          ? [`@SERV_PROV_CODE:*${lower}*`, `@SERV_PROV_CODE:*${upper}*`]
-          : [`${f}:*${upper}*`]
-      );
+      const parts = only.map((f) => agencyAttrExact(f, upper, lower));
       return parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0];
     }
 
     return (
       `(@agencycode:${upper}` +
-      ` OR @Agency:*${upper}*` +
-      ` OR @Properties.log.Agency:*${upper}*` +
-      ` OR @usr.agency:*${upper}*` +
-      ` OR @SERV_PROV_CODE:*${lower}*` +
-      ` OR @SERV_PROV_CODE:*${upper}*)`
+      ` OR ${agencyAttrExact('@Agency', upper, lower)}` +
+      ` OR ${agencyAttrExact('@Properties.log.Agency', upper, lower)}` +
+      ` OR ${agencyAttrExact('@usr.agency', upper, lower)}` +
+      ` OR ${spcExact(upper, lower)})`
     );
   }
 
