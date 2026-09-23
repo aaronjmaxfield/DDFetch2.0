@@ -1495,6 +1495,43 @@ describe('QueryBuilderV2Service', () => {
             expect(scoped("payment").query).toContain('-"EDMS Config="');
         });
 
+        it("reaches a document failure whose message is empty, through its stack trace", () => {
+            /*
+             * From a real OKC upload failure, 2026-09-18: `Error uploading
+             * document to OKC_ADS. (500)Internal Server Error`. Of its four error
+             * lines the one carrying the AAException stack had an EMPTY message,
+             * and free text never reaches `@stacktrace`, so the scope missed it.
+             * Estate-wide the marker adds 25-2,642 errors a day per agency, zero
+             * info.
+             */
+            expect(scoped("documents").query).toContain("@stacktrace:*document*");
+        });
+
+        it("hides document timing lines as chronic, not silently", () => {
+            // 4.5M lines a week, 100% error, fixed shape -- 98% of the errors on a
+            // documents-scoped OKC day. Chronic, so the toggle brings them back
+            // for a slow-document ticket.
+            const hidden = scoped("documents");
+            expect(hidden.query).toContain("-@className:DocumentPerformanceTrace");
+            expect(hidden.warnings.join(" ")).toContain("TimeCost");
+            expect(
+                v2.build(input({ scope: { category: "documents" }, showChronic: true })).query
+            ).not.toContain("DocumentPerformanceTrace");
+        });
+
+        it("searches a trace ID by facet AND free text", () => {
+            /*
+             * On the OKC trace, free text alone reached 9 lines and ZERO of the 4
+             * errors, which hold the ID only in `@TRACE_ID`. The facet alone
+             * missed the biz lines carrying it only in the message. Both
+             * trace-ID fields share the clause.
+             */
+            const id = "W-20260101120000000-1a2b3c4d";
+            const clause = `(@TRACE_ID:${id} OR *${id}*)`;
+            expect(scoped("documents", { documentTraceId: id }).query).toContain(clause);
+            expect(scoped("emse", { emseTraceId: id }).query).toContain(clause);
+        });
+
         it("offers document name, and prefers the wildcard form", () => {
             // 6.7M lines a day carry a document or file name, across biz, ACA,
             // indexer and ACDS. Wildcard beats quoted on recall -- 378 against

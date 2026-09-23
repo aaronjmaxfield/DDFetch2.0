@@ -104,6 +104,21 @@ export const ROUTINE_CHATTER: NoisePattern[] = [
     phrase: '@logger.name:EPaymentConfig',
     what: 'ACA dumping the payment adapter configuration on every page load',
   },
+  {
+    /*
+     * The pair logged on every document operation for an agency with no
+     * document group. Measured 2026-09-22: 2,041,296 lines estate-wide in 24h
+     * and 7 days of it, all `status:info`, no error or warn bucket; 107,825 of
+     * each on OKC PROD alone. Only the `null` value is excluded -- a line
+     * naming a real group survives.
+     */
+    phrase: '"EDMS server docGroup=null"',
+    what: 'EDMS reporting that no document group is set',
+  },
+  {
+    phrase: '"Document Group Code: null"',
+    what: 'The same, logged a second time by the document tier',
+  },
 ];
 
 /**
@@ -213,6 +228,29 @@ export const CHRONIC_PATTERNS: NoisePattern[] = [
      */
     phrase: '*getAllParcelCond*',
     what: 'Parcels with no conditions, logged as an exception',
+  },
+  {
+    /*
+     * Document timing lines: `[TimeCost: 363(ms), DocumentSize: 3,
+     * AGENCY/CAP/26ABC-00000-00001] [...StandardAdaptor.getDocumentList]`, one per
+     * adaptor call on every document list. Logged at ERROR, so chronic rather
+     * than routine.
+     *
+     * Measured 2026-09-22. 7 days estate-wide: 4,541,469 lines, 100% error, zero
+     * lines off the fixed `[TimeCost: N(ms), ...] [method]` shape, stack trace
+     * always empty. Emitted by about fifteen agencies -- SEATTLE 237,764 and OKC
+     * 236,540 a day, then BOISE, FRESNO, SUFFOLKCO, LJCMG, TEMPE, STDTEST2019 --
+     * presumably a per-agency logging setting. On OKC PROD it was 236,923 of
+     * the 241,344 errors a documents-scoped day returned, 98%, and buried a real
+     * `(500)Internal Server Error` upload failure.
+     *
+     * A facet rather than the phrase: the class covers exactly the same lines
+     * (zero `DocumentPerformanceTrace` lines lack "TimeCost") and cannot reach
+     * text in anything else. Not dropped outright -- the timings are the
+     * evidence for a slow-document ticket, which is what the toggle is for.
+     */
+    phrase: '@className:DocumentPerformanceTrace',
+    what: 'Document timing lines ("TimeCost"), logged as errors on every document list',
   },
 ];
 

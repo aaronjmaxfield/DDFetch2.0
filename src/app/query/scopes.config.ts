@@ -254,6 +254,18 @@ export interface ScopeCategory {
 // Reusable fields
 // ---------------------------------------------------------------------------
 
+/**
+ * A `W-...` trace ID, by facet AND free text. Neither arm alone is enough.
+ * Measured on a real OKC upload trace 2026-09-18: `*{id}*` reached 9 lines and
+ * ZERO of its 4 errors, because the error lines hold the ID only in
+ * `@TRACE_ID`; `@TRACE_ID:{id}` reached 17 including all 4 errors but missed
+ * the biz lines that carry it only in the message. Together: all 22.
+ */
+const traceIdClause = (v: string) => {
+  const t = v.trim();
+  return `(@TRACE_ID:${t} OR *${t}*)`;
+};
+
 /** `26COOL-0000016` shape: two digits, letters, dash, seven digits. */
 const ALT_ID = /^\d{2}[A-Za-z]{2,}-\d{6,}$/;
 
@@ -575,6 +587,22 @@ const CATEGORIES: ScopeCategory[] = [
     fields: [
       capId,
       {
+        id: 'documentTraceId',
+        label: 'Trace ID',
+        placeholder: 'W-20260101120000000-1a2b3c4d',
+        hint: 'The TRACE_ID from any line of the upload -- open a line in Datadog and it is in the attributes. It is the only handle that spans the whole operation.',
+        clause: traceIdClause,
+        /*
+         * Restores the EMSE lines the upload fired -- `Script
+         * name:DocumentUploadBefore,TraceId: ...` and the After -- which carry
+         * no document word. Measured on the OKC trace: the field returns 21 of
+         * the trace's 22 lines and all 4 errors. The one it cannot reach is the
+         * event-log-service record of the same script run, which has no service
+         * tag and belongs to no tier this scope searches.
+         */
+        bizMarkers: ['*TraceId*'],
+      },
+      {
         /*
          * The real per-document handle, and the one nobody knows to ask for.
          * The logs identify a document as `{AGENCY},{BDOCUMENT id}` -- as
@@ -632,6 +660,18 @@ const CATEGORIES: ScopeCategory[] = [
     // a far larger share of biz volume than payments, so this scope cuts less --
     // 2.14M down to 92,184 once chatter and chronic patterns go too, against
     // 13,588 for payments. `*laserfiche*` measured 0 here and is left out.
+    //
+    // `@stacktrace:*document*` because free text never reaches the stack trace,
+    // and many document failures put nothing else in the message. Found on a
+    // real OKC upload 2026-09-18: of its four error lines the one carrying the
+    // AAException stack had an EMPTY message and was the one the scope missed.
+    // Measured 24h, errors this marker adds that no other marker reaches: OKC
+    // 2,642, SEATTLE 2,582, BARRIE 2,579, LEECO 504, BOISE 305, STDTEST2019 25
+    // -- errors and warns only, zero info on all six. Sampled, they are EDMS
+    // failures whose whole message is `(400)Bad Request` (OKC) or a SOAP fault
+    // (SEATTLE), `createBDocument` rejecting a null entity (BOISE), and user
+    // lookups failing inside the document list. `@className:*Document*` was the
+    // alternative and was rejected: mostly info, and it missed SEATTLE's errors.
     bizMarkers: [
       '*document*',
       '*EDMS*',
@@ -640,6 +680,7 @@ const CATEGORIES: ScopeCategory[] = [
       '*upload*',
       '*BDOCUMENT*',
       '*FileKey*',
+      '@stacktrace:*document*',
     ],
     keepIndexer: true,
     /*
@@ -878,7 +919,7 @@ const CATEGORIES: ScopeCategory[] = [
         label: 'Trace ID',
         placeholder: 'W-20260101120000000-1a2b3c4d',
         hint: 'From the script error line. This is the only way to see the caller that triggered the script.',
-        clause: (v) => `*${v.trim()}*`,
+        clause: traceIdClause,
         /*
          * On a real trace the category markers cut 9 lines to 4, and the first
          * casualty is the caller -- `InspectionWebService/batchScheduleInspections
