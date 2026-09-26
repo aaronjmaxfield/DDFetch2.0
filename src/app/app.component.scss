@@ -1042,6 +1042,28 @@ label {
   right: -6px;
 }
 
+/* Scope fields wrap. `:first-child` is a DOM position, not a visual one, so once
+   a scope has more than three fields -- SecurePay has five: three Payment fields
+   plus trace ID and merchant ID -- the fourth starts a new line at the LEFT
+   edge, still counts as not-first, opened leftwards and was clipped by the card.
+   The first field of each visual line of three is `3n+1`. Below the md
+   breakpoint the columns stack full-width, so every field is first on its line
+   and every tooltip anchors left. `.row.scope-fields` rather than
+   `.scope-fields` in the media rule: it must at least match the specificity of
+   the generic `.row > [class*='col-']:not(:first-child)` rule above, or that
+   rule wins and the stacked fields still open leftwards off the card. */
+.scope-fields > [class*='col-md-4']:nth-child(3n + 1) .info::after {
+  left: -6px;
+  right: auto;
+}
+
+@media (max-width: 767.98px) {
+  .row.scope-fields > [class*='col-'] .info::after {
+    left: -6px;
+    right: auto;
+  }
+}
+
 /* The original checkbox ids stay in the DOM so the component's existing
    getCheckedServices() reads keep working and the two paths coexist. Hidden
    without display:none, which would drop them from the form entirely. */

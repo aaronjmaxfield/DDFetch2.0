@@ -1066,8 +1066,10 @@ describe('QueryBuilderV2Service', () => {
          */
         const { query } = v2.build(input({ additionalServices: ['SecurePay'] }));
 
+        // The four pod-restart phrases trail the escape since 2026-09-25 -- see
+        // SECUREPAY_FACETLESS_RESTART_NOISE. The escape itself is unchanged.
         expect(query).toContain(
-            '(-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn)))'
+            '(-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn)) AND -"prefetch limit has been reset"'
         );
         // The agency is still required where it exists.
         expect(query).toContain('@SERV_PROV_CODE:(AGCY OR agcy OR *\\:AGCY OR *\\:agcy OR *\\:AGCY\\| OR AGCY-* OR agcy-*)');

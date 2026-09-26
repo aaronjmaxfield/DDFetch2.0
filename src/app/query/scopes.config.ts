@@ -144,6 +144,13 @@ export interface ScopeOption {
    */
   extraClause?: string;
   fields?: ScopeField[];
+  /**
+   * Option-specific help, merged into the category's guidance while this option
+   * is selected: its `useWhen` and `notes` are listed FIRST, then the
+   * category's. Added for SecurePay, whose log vocabulary differs enough from
+   * the other adapters that the generic Payment notes did not help.
+   */
+  guidance?: Partial<ScopeGuidance>;
 }
 
 /**
@@ -309,6 +316,49 @@ const providerTxId: ScopeField = {
   clause: (v) => `*${v.trim()}*`,
 };
 
+/*
+ * SecurePay's PCI adapter writes the trace ID as `@accela.trace_id`; the biz
+ * tier writes the same value as `@TRACE_ID`. One query over both, plus free
+ * text, returned adapter 61 + av.biz 16 + parent UI 1 lines for a single AA
+ * payment on 2026-09-25 -- the whole chain in one search.
+ */
+const securePayTraceId: ScopeField = {
+  id: 'securePayTraceId',
+  label: 'SecurePay trace ID',
+  placeholder: 'W-20260101120000000-1a2b3c4d',
+  hint: 'Back office payments look like W-..., Citizen Access payments like aca-{agency}-... . A Citizen Access payment has TWO trace IDs -- if this one shows only the start of the payment, search by time instead. The second one is reused for every payment in the same session, so it can show more than one payment; tell them apart by batch number.',
+  clause: (v) => {
+    const t = v.trim();
+    return `(@accela.trace_id:${t} OR @TRACE_ID:${t} OR *${t}*)`;
+  },
+  warn: (v) => {
+    const t = v.trim();
+    if (/^abc-123-trace$/i.test(t))
+      return `"${t}" is a fixed test trace ID shared by hundreds of unrelated test payments (1,153 lines), so the result will mix many payments together.`;
+    if (/^simple\{/i.test(t))
+      return `"${t}" is not a real trace ID -- it is an unfilled template from a failed hand-off. Search by transaction ID or time instead.`;
+    return undefined;
+  },
+};
+
+/*
+ * No merchant facet exists on any service (`@merchant:*` = 0 over 30 days);
+ * the ID is free text inside `payrix /txns result`, the routing summary and
+ * the callback body. The free-text form returned 222 lines for one test
+ * merchant over 15 days.
+ */
+const payrixMerchantId: ScopeField = {
+  id: 'payrixMerchantId',
+  label: 'Merchant ID',
+  placeholder: 't1_mer_0123456789abcdef0123456',
+  hint: "The agency's Payrix merchant, t1_mer_... . Fill this in on its own to see every payment for the merchant -- a merchant-wide failure looks the same as a single one until you do.",
+  clause: (v) => `*${v.trim()}*`,
+  warn: (v) =>
+    /^t1_mer_[0-9a-z]+$/i.test(v.trim())
+      ? undefined
+      : `"${v.trim()}" does not look like a Payrix merchant ID, which starts t1_mer_. The gateway's transaction ID (t1_txn_...) goes in "Gateway's transaction ID".`,
+};
+
 // ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------
@@ -334,6 +384,9 @@ const CATEGORIES: ScopeCategory[] = [
         'If the agency uses a gateway that is not in the list, choose Custom / third-party adapter -- that covers all 115 of them.',
         'An IVR or kiosk payment produces no adapter logs at all, so an empty result there is expected rather than a sign nothing happened.',
         '"Webhook not received" usually means it WAS received. Check the adapter for "received webhook response" at the time of payment -- if it is there, the money was taken and the problem is downstream, in Citizen Access creating the record.',
+        // The IIS callback line is admitted by default under Payment (2026-09-25).
+        // On a real payment the biz tier refused it and this still read 200.
+        '"POST /{agency}/Cap/PaymentResult.aspx" is the adapter handing the result to Citizen Access; the number near the end is the HTTP status, then the time in ms. A 200 means the page answered, NOT that the payment was recorded -- check the Civic Platform lines at the same second.',
         'If the adapter received it but Citizen Access did not, search the SAME agency in the OTHER environments too. A wrong callback URL in the adapter config delivers the postback to a sibling environment, and the only trace is an error in THAT environment\'s log.',
         'An agency can have more than one adapter configured, so an empty adapter result does not mean the adapter is broken -- it can mean this payment went through a different one. Confirm which by searching the trace ID and reading the biz lines: they name the adapter being called.',
       ],
@@ -427,6 +480,44 @@ const CATEGORIES: ScopeCategory[] = [
        * quoted form recovers all 1,850 at 265 lines a day estate-wide.
        */
       '"creating the real cap"',
+      /*
+       * -----------------------------------------------------------------------
+       * THE LINE THAT SAYS WHY A CHARGED PAYMENT WAS NOT RECORDED (2026-09-25)
+       * -----------------------------------------------------------------------
+       * Found on a real STANDARDTEST STG Citizen Access payment: Payrix approved
+       * it (`proTransID:... responseCode:0`), then the biz tier refused to apply
+       * it -- `This transaction has been reversed, since the total fee have
+       * changed.. Expected fee: 1110.0, paid fee: 1310.0` -- and threw
+       * CreditCardPaymentException. The Payment scope kept the exception and
+       * DROPPED the two lines that say why, even with the trace ID filled in,
+       * because neither contains a payment word.
+       *
+       * Not SecurePay-specific. Measured over 7 days, av.biz:
+       *   exists            527 errors, 122 info
+       *   survives markers  195 errors, 122 info   -- 332 errors (63%) hidden
+       *   agencies          DENVER 56, MILARA 38, CHARLOTTE 24, LARA 20, MIMM 18,
+       *                     ELLINGTON 15, PASCO 14, LASCRUCES 12, MENIFEE 12, ...
+       *                     plus 271 on lines with no @SERV_PROV_CODE
+       *
+       * Quoted: the wildcard form over-matches, 6,014 info and 793 errors.
+       */
+      '"total fee have changed"',
+      /*
+       * Two SecurePay biz lines with no payment word, both 100% hidden by the
+       * markers above over 7 days. `*securepay*` was measured as the broader
+       * alternative and rejected: 110k extra lines a week, most of them
+       * matching the TEST AGENCY NAMES (SECUREPAYAUTO, SECUREPAYTEST) in
+       * unrelated SQL and audit errors -- the short-code collision again.
+       *
+       *   "SecurePay service fee not recorded"  warn 223 -- ellington-stg 37,
+       *       securepayauto-arch 35, clearwater-stg 22, santaclarita-stg 22,
+       *       standardtest-stg 21, lascruces-stg 19, menifee-stg 19, ...
+       *       ("cap-level transactions are not supported for SecurePay")
+       *   "HMAC key resolved empty"             warn 293 -- arch test tenants
+       *       only today ("post-back signature validation falls open")
+       */
+      '"SecurePay service fee not recorded"',
+      '"HMAC key resolved empty"',
     ],
     /*
      * `lSeqRemaining` passes the routine-chatter admission test -- it contains
@@ -496,6 +587,41 @@ const CATEGORIES: ScopeCategory[] = [
          * would mean this reasoning no longer holds.
          */
         providerUrn: ['urn:provider-id:payrix-multimerchant', 'urn:provider-id:epayments3'],
+        fields: [securePayTraceId, payrixMerchantId],
+        /*
+         * From testing all eleven engineering SecurePay SOPs against live
+         * Datadog, 2026-09-25.
+         * Every note is a trap at least one SOP walks Support into. Counts are
+         * app-pci-payment-adapter on eng-arch-pci; every signature named here
+         * carries @SERV_PROV_CODE (241/241 results, 237/237 callback lines),
+         * so the agency filter keeps them. `No payment intent found` carries
+         * none, and survives only because it is error-level.
+         */
+        guidance: {
+          useWhen: [
+            'The citizen saw "Payment Unsuccessful" or a decline on the SecurePay page',
+            'The card was charged but the record was not updated',
+            'An ACH / e-check payment was blocked',
+            'The payment link said the session expired, or nothing happened at all',
+          ],
+          notes: [
+            'Do not filter to errors. A decline is logged at info as "payrix /txns result ... outcome=declined", and an ACH block at warn as "GIACT decision ... verdict=BLOCK". Only gateway, config and expired-link failures are errors.',
+            'Every charge attempt has one "payrix /txns result" line: payrixStatus=1 is approved, 2 is declined. Decline reasons (CVV, AVS, insufficient funds) are NOT in the logs -- they are only in the Payrix portal.',
+            '"multimerchant callback dispatched: status=200" means the adapter sent the result to Accela, not that Accela applied it. Check the Civic Platform lines for the record as well.',
+            // Rejected before Payrix: on both clean traces measured 2026-09-25 the
+            // error is followed by no `payrix /txns` line and no charge route.
+            // 10 in 15 days, all on test tenants.
+            '"a positive serviceFee and an explicit total are required" means SecurePay refused the payment before sending it to Payrix, so the card was not charged. The agency\'s SecurePay service fee setting is missing or malformed -- that stops every card payment, not just this one.',
+            '"No payment intent found for key" means the payment link had expired or was reused -- links last five minutes. A citizen who timed out on the payment page leaves no log line at all.',
+            'Put the Payrix merchant ID (t1_mer_...) in Merchant ID to see every payment for that merchant -- the quickest way to tell one failed payment from a merchant-wide outage.',
+            // Corrected 2026-09-25: first written as a test-environment quirk. On a
+            // real STANDARDTEST STG session the completion trace of a refused
+            // payment (17:15, batch 6912) was reused by a successful one 28
+            // minutes later (17:43, batch 6932) -- it belongs to the ACA session.
+            'Before calling something a duplicate charge, count the distinct t1_txn_ IDs and batch numbers, not the lines. Citizen Access reuses one trace ID for every payment made in the same session, so a single trace can hold a failed attempt and a later successful one.',
+            'In production an empty SecurePay result can mean you lack access rather than that nothing happened -- PCI logs are restricted to the PCI Data Viewers team and Datadog shows no error, just nothing.',
+          ],
+        },
       },
       {
         /*
@@ -1180,6 +1306,24 @@ export function findOption(
 ): ScopeOption | undefined {
   if (!optionId) return undefined;
   return findCategory(categoryId)?.options.find((o) => o.id === optionId);
+}
+
+/**
+ * The Instructions-panel guidance for a selection: the category's, with the
+ * option's `useWhen` and `notes` listed first when it has its own.
+ */
+export function guidanceFor(
+  categoryId: string | undefined,
+  optionId: string | undefined
+): ScopeGuidance | null {
+  const base = findCategory(categoryId)?.guidance;
+  const extra = findOption(categoryId, optionId)?.guidance;
+  if (!base && !extra) return null;
+  return {
+    what: extra?.what ?? base?.what ?? '',
+    useWhen: [...(extra?.useWhen ?? []), ...(base?.useWhen ?? [])],
+    notes: [...(extra?.notes ?? []), ...(base?.notes ?? [])],
+  };
 }
 
 /**

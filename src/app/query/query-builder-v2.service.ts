@@ -8,6 +8,7 @@ import {
   HostDef,
   ServiceDef,
   ServiceTarget,
+  acaPaymentResultPhrase,
   acaUrlSegment,
   CAPI_SERVICES,
 } from './environments.config';
@@ -25,6 +26,7 @@ import {
   routineChatterExclusion,
 } from './noise.config';
 import { QueryEngine, QueryInput, QueryResult } from './query-input.model';
+import { lintSecurePayTerms } from './securepay-lints';
 
 /**
  * Corrected query builder.
@@ -131,6 +133,37 @@ export class QueryBuilderV2Service implements QueryEngine {
         `Only ${services.map((s) => s.ui).join(' and ')} logs are included -- no Civic Platform, Citizen Access or Construct API. That is a deliberately narrow view: if the answer is not here, tick Civic Platform and run it again.`
       );
     }
+
+    /*
+     * SecurePay advisories, from testing the engineering SOP set against live
+     * Datadog on 2026-09-25. See securepay-lints.ts for the evidence.
+     *
+     * The access warning is production-only because that is where it bites:
+     * every PCI env except eng-arch-pci returned zero for 60 days to an account
+     * outside the PCI Data Viewers team, with no error -- the documented deny
+     * behaviour of that restriction (CRE 7349239996, CLOUDOPS-10686). The
+     * non-prod envs keep eng-arch-pci, which the restriction exempts, so they
+     * still return data.
+     */
+    const securePay = services.some((s) => s.ui === 'SecurePay');
+    if (securePay && !env.pciEnv?.includes('eng-arch-pci')) {
+      warnings.push(
+        'SecurePay production logs are restricted to the PCI Data Viewers team. If the SecurePay part of this search comes back empty, that can mean no access rather than no activity -- Datadog returns nothing and shows no error.'
+      );
+    } else if (securePay && env.pciEnv?.includes('nonprod-pci')) {
+      /*
+       * Non-prod too, proven 2026-09-25 on a real STANDARDTEST STG payment:
+       * the biz tier logged `Processing SecurePay postback transaction` with a
+       * Payrix t1_txn_ and `Payment Completed Successfully`, and the adapter
+       * side returned ZERO lines in every visible env -- that tenant's adapter
+       * runs on nonprod-pci. Only the engineering test tenants (eng-arch-pci)
+       * show the adapter half.
+       */
+      warnings.push(
+        "SecurePay adapter logs are only visible for the engineering test cluster. Most real agencies' non-production SecurePay runs on a restricted cluster (nonprod-pci), so you may see only the Civic Platform and Citizen Access half of a payment -- Datadog returns nothing for the adapter and shows no error."
+      );
+    }
+    warnings.push(...lintSecurePayTerms(input.additionalParams, securePay));
 
     const identityGroup = branches.length > 1 ? `(${branches.join(' OR ')})` : branches[0];
 
@@ -743,6 +776,34 @@ export class QueryBuilderV2Service implements QueryEngine {
          * 121 seconds and returned a 302 existed ONLY on an IIS line, and the
          * tool could not return it at any setting.
          */
+        /*
+         * -------------------------------------------------------------------
+         * THE PAYMENT CALLBACK IS AN IIS LINE. On by default under Payment.
+         * Added 2026-09-25.
+         * -------------------------------------------------------------------
+         * `POST /{AGENCY}/Cap/PaymentResult.aspx` is the adapter handing the
+         * gateway result to Citizen Access -- Apache-HttpClient from SecurePay
+         * and the Accela Adapter, a browser for redirect adapters. It is the
+         * only ACA-side record that the callback arrived, with its status and
+         * duration, and it lives only in the IIS log, so it was unreachable
+         * without Include IIS.
+         *
+         * Found on a real STANDARDTEST STG payment: Payrix approved it, the biz
+         * tier refused it ("total fee have changed"), and this line shows the
+         * callback still returned 200 after 5.6 s -- which is why nothing
+         * retried. Without it the search could not show that.
+         *
+         * Cheap because it is a handful of lines per payment: 16,430 a week
+         * across all of US PROD, LEECO the busiest at 2,307 (~330 a day,
+         * against ~20,000 payment-scoped lines a day). The broad Include IIS arm
+         * stays opt-in; this admits the one page that matters.
+         */
+        if (input.scope?.category === 'payment') {
+          identity.push(
+            `(service:aca AND filename:u_ex* AND ${acaPaymentResultPhrase(upper, env)})`
+          );
+        }
+
         if (input.includeIis) {
           identity.push(
             `(service:aca AND filename:u_ex* AND ${acaUrlSegment(upper, env)})`

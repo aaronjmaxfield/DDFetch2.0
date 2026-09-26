@@ -10,6 +10,7 @@ import {
   fieldsFor,
   findCategory,
   findOption,
+  guidanceFor,
   ScopeField,
   ScopeGuidance,
   ScopeOption,
@@ -540,7 +541,7 @@ export class AppComponent {
    * the Instructions panel, so scope-specific help costs no card height.
    */
   get activeGuidance(): ScopeGuidance | null {
-    return findCategory(this.scopeCategory)?.guidance ?? null;
+    return guidanceFor(this.scopeCategory, this.scopeOption);
   }
 
   get activeScopeLabel(): string {

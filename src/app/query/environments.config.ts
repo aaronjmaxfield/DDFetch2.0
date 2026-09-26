@@ -80,6 +80,11 @@ export interface EnvironmentDef {
    */
   pciEnv?: string[];
   /**
+   * The ACA IIS URL path uses the bare agency code here, as PROD does, rather
+   * than `{AGENCY}-{ENV}`. See `acaUrlSegment`.
+   */
+  iisBareSegment?: boolean;
+  /**
    * `env:` values for `service:mol`, which uses a taxonomy shared with nothing
    * else -- see molEnvClause. `undefined` means mol is not collected for this
    * environment, and the engine warns rather than guessing.
@@ -186,6 +191,8 @@ export const HOSTS: HostDef[] = [
       {
         ui: 'STG',
         jndi: 'stg',
+        // IIS URLs carry the bare agency code here, like PROD -- see acaUrlSegment.
+        iisBareSegment: true,
         // See hostClause docs -- plain `host:*stg*` leaks every other region.
         hostClause: '(host:*stg* AND -host:*austg* AND -host:*castg* AND -host:*orstg*)',
         civpEnv: 'civp_stg_azure',
@@ -342,6 +349,47 @@ const pciEnvClause: EnvClause = (env) =>
       ? `env:(${env.pciEnv.join(' OR ')})`
       : `env:${env.pciEnv[0]}`
     : undefined;
+
+/**
+ * Pod-restart chatter excluded from the SecurePay adapter's FACET-LESS arm only.
+ *
+ * That arm admits warn/error lines with no `@SERV_PROV_CODE` into every agency's
+ * SecurePay search, because some real failures carry no agency (see the
+ * `agencyClause` on the SecurePay target). A real STANDARDTEST STG search on
+ * 2026-09-25 showed what else it admits: 42 of its 93 adapter lines belonged to
+ * no agency, and 28 of those were the adapter starting up.
+ *
+ * Measured 2026-09-25, eng-arch-pci, 15 days:
+ *
+ *   facet-less arm              213 lines   (warn 131, error 82)
+ *   with these four excluded    127 lines   (warn  53, error 74)
+ *   the four, matched directly   86 lines   (warn  78, error  8)   -- 213 - 127
+ *   the four, on ANY line carrying @SERV_PROV_CODE:  0
+ *   the four, whole service, 30 days:  eng-arch-pci 86, no other env
+ *
+ *   "prefetch limit has been reset"        warn  48  AMQP consumer start
+ *   "Error creating Cxf Bus"               warn  15  "...This exception will be ignored."
+ *   "AMQPConnectionDetails is deprecated"  warn  15  Spring config notice
+ *   "ByteBuf.release"                      error  8  Netty leak detector
+ *
+ * Per-agency measurement does not apply the way it does elsewhere: these lines
+ * carry no agency, so they are the SAME lines in every agency's search. What
+ * matters is that they never co-occur with one, which the zero above shows.
+ *
+ * Deliberately KEPT, though they share the arm and look similar: "Could not roll
+ * back JMS transaction" and "Transport connection remotely closed" (the callback
+ * queue losing its broker -- a real cause of an undelivered callback), "intent
+ * not signable" (meaning unknown), and "No payment intent found" (an expired
+ * payment link, possibly this agency's).
+ *
+ * Quoted, because negation of a multi-word wildcard matches everything.
+ */
+export const SECUREPAY_FACETLESS_RESTART_NOISE = [
+  '"prefetch limit has been reset"',
+  '"Error creating Cxf Bus"',
+  '"AMQPConnectionDetails is deprecated"',
+  '"ByteBuf.release"',
+];
 
 /**
  * `service:mol` -- a SIXTH env taxonomy, and the reason this needs its own
@@ -673,7 +721,9 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
          */
         agencyClause: (upper, lower) =>
           `(${spcExact(upper, lower)}` +
-          ` OR (-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn))))`,
+          ` OR (-@SERV_PROV_CODE:* AND (-env:eng-arch-pci OR status:(error OR warn))` +
+          SECUREPAY_FACETLESS_RESTART_NOISE.map((p) => ` AND -${p}`).join('') +
+          `))`,
         note: 'SecurePay runs on separate PCI clusters. Almost all traffic (99.3% over 30 days) is on the engineering cluster eng-arch-pci, and only there does the log carry an agency field -- the production and non-production PCI clusters record no agency at all, so their lines are returned for the whole cluster rather than just this agency. That is deliberate: those two clusters hold 1,232 of the service\'s 1,668 errors, and requiring an agency field there returned nothing. Unlike the standard payment adapter, this service ships debug logs, so the adapter configuration it fetched (including the ACA callback URL) is visible in the results. Note also that SecurePay\'s Citizen Access handling is not currently working correctly and tags its lines with the epayments3 provider id rather than payrix, so a SecurePay result can look like a different adapter entirely -- the provider filter allows for that.',
       },
       /*
@@ -895,9 +945,37 @@ export const ADDITIONAL_SERVICES: ServiceDef[] = [
  *
  * Only US environments were verified. Oregon expresses its ACA filenames as site
  * names rather than agency codes, so its URL segment is an ASSUMPTION.
+ *
+ * CORRECTED 2026-09-25: US STG is bare too. Measured over 7 days on
+ * `env:civp_stg_azure`, bare against `-STG`: CCSF 34,719 / 0, ACFW 8,612 / 0,
+ * ARLINGTONCO 6,273 / 0, STANDARDTEST 4,003 / 0. So Include IIS returned
+ * nothing at all for any US STG agency. The STG host clause alone keeps the
+ * bare form in STG -- `{*}/STANDARDTEST/{*}` under it is 4,003, all
+ * `civp_stg_azure`, although the same path exists in eight other envs. Hence a
+ * per-row `iisBareSegment` rather than a blanket rule: the shared non-prod
+ * hosts also serve PROD-path lines, so a bare form there would leak PROD.
  */
+function acaSegmentToken(agencyUpper: string, env: EnvironmentDef): string {
+  return env.ui === 'PROD' || env.iisBareSegment ? agencyUpper : `${agencyUpper}-${env.ui}`;
+}
+
 export function acaUrlSegment(agencyUpper: string, env: EnvironmentDef): string {
-  return env.ui === 'PROD' ? `*/${agencyUpper}/*` : `*/${agencyUpper}-${env.ui}/*`;
+  return `*/${acaSegmentToken(agencyUpper, env)}/*`;
+}
+
+/**
+ * The adapter-to-ACA payment callback, `POST /{AGENCY}/Cap/PaymentResult.aspx`.
+ *
+ * An exact phrase rather than the segment wildcard: every one of 500 sampled
+ * lines had that path shape, and the phrase is never looser than the wildcard
+ * (COR 195 / 195, SBCO 250 / 250, COC 1,038 against 1,043). Punctuation is
+ * ignored inside a quoted phrase, so this is the token sequence
+ * `{AGENCY} Cap PaymentResult aspx` -- whole-word, so a short code inside a
+ * longer one cannot match. Free text is case-insensitive, which matters: the
+ * segment is written `LEECO` by one agency and `leeco` by another.
+ */
+export function acaPaymentResultPhrase(agencyUpper: string, env: EnvironmentDef): string {
+  return `"${acaSegmentToken(agencyUpper, env)}/Cap/PaymentResult.aspx"`;
 }
 
 export function findHost(ui: string): HostDef | undefined {
