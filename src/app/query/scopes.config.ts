@@ -348,7 +348,12 @@ const transactionId: ScopeField = {
    */
   label: "Accela's transaction ID",
   placeholder: 'AGCY-12345',
-  hint: "The transaction number Accela generates, e.g. AGCY-12345. You can paste the full urn or a txn=urn:... value straight from a log line -- it is cut to the short form automatically. Both casings are searched, because the back office writes it uppercase and Citizen Access lowercase. This is NOT the number on the cardholder's receipt.",
+  /*
+   * Where people find it, 2026-09-30: the Payrix portal's Transactions > Order
+   * History shows it as the full urn. The urn fails a direct Datadog search, so
+   * the hint teaches the short form; the field still cuts a pasted urn (below).
+   */
+  hint: "The Accela transaction ID, e.g. AGCY-12345. In the Payrix portal it is under Transactions > Order History, shown as urn:...:transaction-id:aca:agcy-12345 -- use only the part after the last colon. Both casings are searched. This is NOT the number on the cardholder's receipt.",
   clause: (v) => {
     const t = shortTransactionId(v);
     // Both casings: the facet is case sensitive and the platform decides which

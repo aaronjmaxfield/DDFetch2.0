@@ -68,6 +68,12 @@ describe('SecurePay SOP signals', () => {
       expect(query).not.toContain('txn=');
     });
 
+    it('tells people where the ID is in the Payrix portal and to use only the short form', () => {
+      const hint = findCategory('payment')?.fields?.find((f) => f.id === 'transactionId')?.hint ?? '';
+      expect(hint).toContain('Transactions > Order History');
+      expect(hint).toContain('use only the part after the last colon');
+    });
+
     it('leaves the short form alone and does not warn', () => {
       const { query, warnings } = v2.build(securePay({}, { transactionId: 'AGCY-12345' }));
       expect(query).toContain('*AGCY-12345*)');
