@@ -476,8 +476,10 @@
           still reads additionalServices through them, so the checkbox path and
           the scoped path coexist and nothing downstream had to change.
         -->
+        <!-- Three across when the category has "Looking for" views, so the
+             third dropdown costs no card height. -->
         <div class="row form-row">
-          <div class="col-md-6">
+          <div [class.col-md-6]="!scopeViews.length" [class.col-md-4]="scopeViews.length">
             <label for="scopeCategory">Scope <span class="opt">optional</span></label>
             <!-- [selected] on the options, not [value] on the select. Binding
                  [value] leaves a native select showing its first option however
@@ -496,7 +498,7 @@
           </div>
 
           @if (scopeOptions.length) {
-            <div class="col-md-6">
+            <div [class.col-md-6]="!scopeViews.length" [class.col-md-4]="scopeViews.length">
               <label for="scopeOption">{{ scopeCategory === 'payment' ? 'Provider' : 'Service' }}</label>
               <select
                 class="form-control"
@@ -506,6 +508,22 @@
                 <option value="" [selected]="!scopeOption">-- all --</option>
                 @for (o of scopeOptions; track o.id) {
                   <option [value]="o.id" [selected]="o.id === scopeOption">{{ o.label }}</option>
+                }
+              </select>
+            </div>
+          }
+
+          @if (scopeViews.length) {
+            <div class="col-md-4">
+              <label for="scopeView">Looking for</label>
+              <select
+                class="form-control"
+                id="scopeView"
+                (change)="onScopeViewChange($any($event.target).value)"
+              >
+                <option value="" [selected]="!scopeView">-- everything --</option>
+                @for (v of scopeViews; track v.id) {
+                  <option [value]="v.id" [selected]="v.id === scopeView">{{ v.label }}</option>
                 }
               </select>
             </div>

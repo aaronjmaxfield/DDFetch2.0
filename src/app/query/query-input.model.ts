@@ -59,6 +59,8 @@ export interface QueryInput {
     category?: string;
     option?: string;
     fields?: Record<string, string>;
+    /** A "Looking for" view id. See ScopeView in scopes.config.ts. */
+    view?: string;
   };
   /**
    * Hide routine chatter -- the log lines that appear in every search and cannot

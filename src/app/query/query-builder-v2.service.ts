@@ -17,6 +17,7 @@ import {
   fieldsFor,
   findCategory,
   findOption,
+  findView,
   scopeSuppliesOwnLogs,
 } from './scopes.config';
 import {
@@ -277,6 +278,24 @@ export class QueryBuilderV2Service implements QueryEngine {
     }
 
     /*
+     * A "Looking for" view keeps only the lines matching its signatures. It is
+     * already tier-split, so it goes in as-is. Ignored in raw mode, which
+     * promises nothing was filtered. See ScopeView.
+     */
+    const view = raw ? undefined : findView(input.scope?.category, input.scope?.view);
+    if (view) {
+      scoping.push(
+        view.clause({ agencyUpper: agency.toUpperCase(), agencyLower: agency.toLowerCase(), env })
+      );
+      warnings.push(view.blindSpots);
+      if (input.scope?.category === 'payment' && !scopeOption?.serviceUi) {
+        warnings.push(
+          'No Provider is selected, so the payment adapter service is not in this search and its side of the story (webhooks, adapter delivery failures, SecurePay results) is missing. Pick the Provider to add it.'
+        );
+      }
+    }
+
+    /*
      * Additional parameters go in the `typed` group but BEFORE the scope
      * fields, so the identifier stays dead last. Both are the user's own, and
      * the scope field is the one they come back to delete.
@@ -324,7 +343,8 @@ export class QueryBuilderV2Service implements QueryEngine {
       const { chatterExceptions } = activeScopeExtras(
         input.scope?.category,
         input.scope?.option,
-        input.scope?.fields
+        input.scope?.fields,
+        raw ? undefined : input.scope?.view
       );
       const exclusion = routineChatterExclusion(chatterExceptions);
       if (exclusion) exclusions.push(exclusion);
@@ -804,6 +824,12 @@ export class QueryBuilderV2Service implements QueryEngine {
           );
         }
 
+        // A view's own IIS pages. See ScopeView.acaIisPhrases.
+        const viewIis = input.rawMode === true ? undefined : findView(input.scope?.category, input.scope?.view);
+        for (const phrase of viewIis?.acaIisPhrases?.({ agencyUpper: upper, agencyLower: lower, env }) ?? []) {
+          identity.push(`(service:aca AND filename:u_ex* AND ${phrase})`);
+        }
+
         if (input.includeIis) {
           identity.push(
             `(service:aca AND filename:u_ex* AND ${acaUrlSegment(upper, env)})`
@@ -937,9 +963,18 @@ export class QueryBuilderV2Service implements QueryEngine {
      * carries no payment word. With no biz tier present there is nothing left
      * for them to narrow, so they could only do that damage.
      */
+    /*
+     * A view replaces the markers on the biz tier: its signatures are narrower
+     * than any marker, and several carry no payment word, so stacking the
+     * markers on top would delete them. See ScopeView.
+     */
+    const viewActive =
+      input.rawMode !== true && !!findView(input.scope?.category, input.scope?.view);
+
     if (
       wantsBiz &&
       input.rawMode !== true &&
+      !viewActive &&
       category?.bizMarkers?.length &&
       input.scopeBizTier !== false
     ) {

@@ -47,7 +47,11 @@
  *     filter must be `(@PROVIDER:x OR -@PROVIDER:*)` or it guts the trace.
  */
 
-import { EnvironmentDef } from './environments.config';
+import {
+  EnvironmentDef,
+  acaPaymentPostbackPhrase,
+  acaPaymentResultPhrase,
+} from './environments.config';
 
 export interface ScopeFieldContext {
   agencyUpper: string;
@@ -154,6 +158,51 @@ export interface ScopeOption {
 }
 
 /**
+ * A "Looking for" view: a question-shaped lens on a category, added 2026-09-29.
+ *
+ * Everything else in this file narrows by REMOVING noise, so what is left is
+ * everything that might matter. A view works the other way round: it keeps only
+ * the lines that match known signatures for one question -- "which adapter",
+ * "did a postback fail", "did the payment go through" -- so the answer can be
+ * read at a glance, ideally in Datadog's Patterns view.
+ *
+ * That makes a view the most dangerous thing in the tool if it is trusted
+ * blindly, because a failure worded differently from every signature is simply
+ * not there (lesson 2, silent under-matching). So every view:
+ *
+ *   - is opt-in; the default is still all activity for the scope;
+ *   - is split by tier, `((service:aca AND ...) OR (-service:aca AND ...))`,
+ *     so each signature is only required of the tier that writes it;
+ *   - replaces the category's biz markers rather than stacking on them, because
+ *     several signatures carry no payment word ("time out for creating the real
+ *     cap", "This transaction has been reversed") and the markers would delete
+ *     them -- the same failure the custom-adapter option hit;
+ *   - says what it cannot see, in `blindSpots`.
+ *
+ * Signatures come from the log-shape library beside HANDOFF.md
+ * (`dd.ps1 log shape\Payments.md`) and were re-measured before use -- see
+ * research/PAYMENT_VIEWS.md.
+ */
+export interface ScopeView {
+  id: string;
+  label: string;
+  /** The whole-query clause. Tier-split; see above. */
+  clause: (ctx: ScopeFieldContext) => string;
+  /**
+   * IIS phrases to admit into the ACA identity while this view is selected.
+   * IIS lines live in `u_ex*` files that no other ACA arm reaches, so a view
+   * that needs one must also bring it in -- the clause alone would AND against
+   * lines that were never fetched.
+   */
+  acaIisPhrases?: (ctx: ScopeFieldContext) => string[];
+  /** Routine-chatter phrases the view depends on as evidence. */
+  chatterExceptions?: string[];
+  /** Always shown as a warning while the view is on. */
+  blindSpots: string;
+  guidance?: Partial<ScopeGuidance>;
+}
+
+/**
  * Per-scope help, shown in the Instructions panel when that scope is selected.
  *
  * Lives in the side panel rather than on the form on purpose: the panel is a
@@ -195,6 +244,8 @@ export interface ScopeCategory {
   /** Shown for every option in the category. */
   fields?: ScopeField[];
   options: ScopeOption[];
+  /** "Looking for" views. See ScopeView. */
+  views?: ScopeView[];
   /**
    * Terms that identify biz-tier content belonging to this category.
    *
@@ -380,6 +431,199 @@ const payrixMerchantId: ScopeField = {
 };
 
 // ---------------------------------------------------------------------------
+// Payment "Looking for" views
+// ---------------------------------------------------------------------------
+/*
+ * Measured 2026-09-29, 24h estate-wide unless stated; full table and the
+ * per-agency breakdown in research/PAYMENT_VIEWS.md. Every phrase is QUOTED
+ * because they are multi-word, and the wildcard form of a multi-word phrase
+ * over-matches (HANDOFF matching rules).
+ */
+
+/** `((service:aca AND (a OR b)) OR (-service:aca AND (c OR d)))`, skipping an empty side. */
+function tierSplit(aca: string[], other: string[]): string {
+  const arms: string[] = [];
+  if (aca.length) arms.push(`(service:aca AND (${aca.join(' OR ')}))`);
+  if (other.length) arms.push(`(-service:aca AND (${other.join(' OR ')}))`);
+  return `(${arms.join(' OR ')})`;
+}
+
+/*
+ * The IIS callback lines. `-"200 0 0"` keeps anything but a clean 200: the
+ * three numbers are HTTP status, substatus and Win32 status. Measured on
+ * PaymentResult.aspx: 3,559 lines a day, 9 left (58 a week) -- six were 400s
+ * (the INT-7129 non-retried postback), plus 302s and one 200 that took over
+ * 30 s. On paymentpostback.aspx: 21,848 a day, 21 left, all 200s over 30 s
+ * with a non-zero Win32 status, i.e. the caller gave up waiting.
+ *
+ * Monitors are excluded on the postback page only: without it PRTG, Splunk and
+ * Go-http-client probes are most of the non-200s on some agencies.
+ */
+const iisPaymentResultNotClean = (c: ScopeFieldContext) =>
+  `(filename:u_ex* AND ${acaPaymentResultPhrase(c.agencyUpper, c.env)} AND -"200 0 0")`;
+const iisPostbackNotClean = (c: ScopeFieldContext) =>
+  `(filename:u_ex* AND ${acaPaymentPostbackPhrase(c.agencyUpper, c.env)} AND -"200 0 0" AND -(PRTG OR Splunk OR Go-http-client*))`;
+
+/*
+ * `success=false` in ACA's reply to a redirect-adapter postback. 70% of these
+ * are uptime monitors posting nothing ("parameters are not available"): 6,206
+ * a day, 1,789 without them. What is left is almost all
+ * "create cap failed, payment result is null" (1,752) -- MACOMB 920,
+ * CLARKCO 311, DENVER 146, POL 135, COSPRINGS 80. The colon-joined token is
+ * why the phrase must start at `postback:`; the bare words return 0.
+ */
+const acaPostbackFalse = '("postback:success%3dfalse" AND -*not%20available*)';
+
+/*
+ * Agency breadth, 24h: LEECO 66, COHB 46, MERIDIAN 38, HOLLYWOOD 25,
+ * PINELLAS 24 ... 340 estate-wide, all error. Emitted as a pair with
+ * `AccelaAdapter webhook not recieved` (319) -- see the Payment bizMarkers note.
+ */
+const acaCapTimeout = ['"time out for creating the real cap"', '"AccelaAdapter webhook not recieved"'];
+
+const PAYMENT_VIEWS: ScopeView[] = [
+  {
+    id: 'adapter',
+    label: 'Which adapter',
+    /*
+     * `@logger.name:EPaymentConfig` is the adapter-discovery query from the
+     * custom-adapter audit: every line's message IS the adapter name. It is
+     * routine chatter everywhere else (2.2M a day, all info), so the view has to
+     * lift that exclusion. Volume per agency is large -- MILARA 243,929 a day --
+     * which is why the guidance says to use a short window.
+     *
+     * Oregon ACA lines have no @logger.name facet at all, so the
+     * `*adapterName*` arm is limited to lines with no logger.
+     *
+     * The non-ACA arm is the back-office side: the biz line naming the
+     * provider urn when a payment starts (330 a day, av.biz only).
+     */
+    clause: () =>
+      tierSplit(
+        ['@logger.name:EPaymentConfig', '(*adapterName* AND -@logger.name:*)'],
+        ['"Calling Payment Adapter Event Log Initiate Endpoint Successful"']
+      ),
+    chatterExceptions: ['@logger.name:EPaymentConfig'],
+    blindSpots:
+      'Which adapter: shows Citizen Access reading its payment adapter setting, plus the Civic Platform line naming the provider when a payment starts. It lists what is configured, not what was used for a particular payment -- an agency can have more than one.',
+    guidance: {
+      what: 'The payment adapter this agency is configured to use, read from the logs rather than guessed.',
+      useWhen: ['You do not know which gateway or adapter the agency uses'],
+      notes: [
+        'Use a short window -- the last hour is plenty. Citizen Access logs the setting on every page load, so a busy agency writes hundreds of thousands of identical lines a day.',
+        'The line reads adapterName:{name} or adapter:{name}. AccelaAdapter means the payment goes through the payment adapter service -- Forte, SecurePay or PayPal; anything else is a custom or third-party adapter.',
+        'Nothing at all usually means nobody used Citizen Access in the window. Widen it before concluding anything.',
+      ],
+    },
+  },
+  {
+    id: 'postback-failures',
+    label: 'Failed postbacks',
+    acaIisPhrases: (c) => [acaPaymentPostbackPhrase(c.agencyUpper, c.env)],
+    clause: (c) =>
+      tierSplit(
+        [
+          iisPaymentResultNotClean(c),
+          iisPostbackNotClean(c),
+          acaPostbackFalse,
+          ...acaCapTimeout,
+          // 6 in 7 days, all error; the sibling-environment callback case.
+          '"Error occurred in CompletePayment method"',
+        ],
+        [
+          // PAS / PCI adapter delivery failures. 49 a day, adapters only.
+          '"http call failed to"',
+          // Config store unreachable after every retry: 152 a week, warn.
+          '"redeliveries: 5/5"',
+          // Forte console-keyed payment, never applied: 3 a day, error, no agency.
+          '"transaction-id missing in request"',
+          // Expired or reused payment link.
+          '"Exhausted after delivery attempt"',
+          // SecurePay callback lost to a socket reset, not retried. Scoped to
+          // the adapter: on the biz tier the phrase is database noise.
+          '(service:app-pci-payment-adapter AND "Connection reset")',
+        ]
+      ),
+    blindSpots:
+      'Failed postbacks: only lines matching known failure signatures are shown. A failure worded differently, or a postback that never arrived at all, leaves nothing here -- switch Looking for back to "everything" before concluding nothing failed.',
+    guidance: {
+      what: 'Only the places a payment result failed to get from the gateway into Civic Platform.',
+      useWhen: [
+        'The gateway shows the payment but the record does not',
+        'The citizen was charged and saw an error or a spinning page',
+        'A vendor says Accela rejected their postback',
+      ],
+      notes: [
+        'Page lines read "... PaymentResult.aspx ... 400 0 0 ..." -- the first of the three numbers is the HTTP status, and the last number on the line is the time taken in ms. A 400 there means Citizen Access refused the callback and the adapter does not retry it.',
+        'A 200 that took 30 seconds or more with a non-zero last status number means the caller gave up waiting. The payment may still have been applied, possibly twice.',
+        '"success%3dfalse ... create cap failed" is Citizen Access telling the gateway it could not record the payment. The card was usually charged anyway.',
+        '"time out for creating the real cap" comes in a pair with "webhook not recieved" -- the webhook usually DID arrive; creating the record took too long.',
+        'Adapter-side failures (Forte, SecurePay, PayPal) are only included when you also pick the Provider.',
+        // Measured on LEECO over 7 days: 9 of its 16 adapter lines here were this
+        // error, admitted because it is facet-less -- not necessarily LEECO's.
+        '"transaction-id missing in request" carries no agency, so it can belong to ANY agency on the same gateway. It is a payment keyed straight into the Forte console; match the organization_id in the line against this agency\'s own "received webhook response" lines before blaming it on them.',
+        '"http call failed to: .../{agency}/Cap/PaymentResult.aspx" is the adapter failing to hand the result to Citizen Access. "redeliveries: 0/5" at the end means it did not retry.',
+      ],
+    },
+  },
+  {
+    id: 'outcomes',
+    label: 'Payment outcomes',
+    clause: (c) =>
+      tierSplit(
+        [
+          // 15,398 a day: ACA's own "done" line for a redirect-adapter payment.
+          '"The payment is successfully"',
+          '"postback:success%3dtrue"',
+          acaPostbackFalse,
+          // Every callback, with its status and time taken.
+          `(filename:u_ex* AND ${acaPaymentResultPhrase(c.agencyUpper, c.env)})`,
+          ...acaCapTimeout,
+        ],
+        [
+          // Success anchors. "Applying ACA payment result ends" is a Citizen
+          // Access payment applied (22,872 a day); "Processing cap payment ends"
+          // is every applied payment, back office included (33,093).
+          '"Applying ACA payment result ends"',
+          '"Processing cap payment ends"',
+          '"SecurePay postback completed"',
+          // The gateway's answer as the biz tier received it (3,504, av.biz).
+          '"Provider transaction details"',
+          // Failure anchors. Reversed: 166 a day, 147 error, MILARA 57/wk,
+          // LARA, MIMM, GALVESTON, SLCREF, ARLINGTONCO, DENVER.
+          '"This transaction has been reversed"',
+          '*CreditCardPaymentException*',
+          // 706 a day: OHIOEPA, SECUREPAYAUTO, STURBRIDGE and 104 with no agency.
+          '"Online payment failed"',
+          // SecurePay adapter: approved/declined per charge, and per payment.
+          '"payrix /txns result"',
+          '"multimerchant routing summary"',
+          '"GIACT decision"',
+          // Forte / SecurePay: the gateway's webhook arrived.
+          '"received webhook response"',
+        ]
+      ),
+    blindSpots:
+      'Payment outcomes: only the lines that state a result are shown -- the steps in between are hidden. If a payment has a start but no outcome line, switch Looking for back to "everything" and read the whole trail.',
+    guidance: {
+      what: 'One or two lines per payment saying whether it went through, from Citizen Access, Civic Platform and the adapter.',
+      useWhen: [
+        'Have payments been succeeding since a given time?',
+        'Did this one payment go through?',
+        'Is it one citizen or every payment for the agency?',
+      ],
+      notes: [
+        'Success: "Applying ACA payment result ends" is a Citizen Access payment recorded on the record; "Processing cap payment ends" on its own is a back-office payment. "The payment is successfully" and "success%3dtrue" are Citizen Access confirming a redirect-adapter payment.',
+        'Failure: "This transaction has been reversed", CreditCardPaymentException, "Online payment failed", "success%3dfalse", and "time out for creating the real cap".',
+        'SecurePay declines are info, not errors: read outcome= on the "payrix /txns result" line. Do not filter to errors.',
+        "Switch Datadog to the Patterns view to see the counts of each kind at a glance. Then pick a gap and look at everything around it.",
+        'Adapter lines (Forte, SecurePay) are only included when you also pick the Provider.',
+      ],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------
 
@@ -551,6 +795,7 @@ const CATEGORIES: ScopeCategory[] = [
      * the user has said they are investigating a payment.
      */
     chatterExceptions: ['"lSeqRemaining"'],
+    views: PAYMENT_VIEWS,
     options: [
       {
         id: 'forte',
@@ -1328,21 +1573,32 @@ export function findOption(
   return findCategory(categoryId)?.options.find((o) => o.id === optionId);
 }
 
+export function findView(
+  categoryId: string | undefined,
+  viewId: string | undefined
+): ScopeView | undefined {
+  if (!viewId) return undefined;
+  return findCategory(categoryId)?.views?.find((v) => v.id === viewId);
+}
+
 /**
  * The Instructions-panel guidance for a selection: the category's, with the
- * option's `useWhen` and `notes` listed first when it has its own.
+ * option's `useWhen` and `notes` listed first when it has its own, and a
+ * view's before both -- it is the most specific thing selected.
  */
 export function guidanceFor(
   categoryId: string | undefined,
-  optionId: string | undefined
+  optionId: string | undefined,
+  viewId?: string
 ): ScopeGuidance | null {
   const base = findCategory(categoryId)?.guidance;
   const extra = findOption(categoryId, optionId)?.guidance;
-  if (!base && !extra) return null;
+  const view = findView(categoryId, viewId)?.guidance;
+  if (!base && !extra && !view) return null;
   return {
-    what: extra?.what ?? base?.what ?? '',
-    useWhen: [...(extra?.useWhen ?? []), ...(base?.useWhen ?? [])],
-    notes: [...(extra?.notes ?? []), ...(base?.notes ?? [])],
+    what: view?.what ?? extra?.what ?? base?.what ?? '',
+    useWhen: [...(view?.useWhen ?? []), ...(extra?.useWhen ?? []), ...(base?.useWhen ?? [])],
+    notes: [...(view?.notes ?? []), ...(extra?.notes ?? []), ...(base?.notes ?? [])],
   };
 }
 
@@ -1389,7 +1645,8 @@ export function scopeSuppliesOwnLogs(
 export function activeScopeExtras(
   categoryId: string | undefined,
   optionId: string | undefined,
-  values: Record<string, string> | undefined
+  values: Record<string, string> | undefined,
+  viewId?: string
 ): {
   bizMarkers: string[];
   chatterExceptions: string[];
@@ -1398,7 +1655,10 @@ export function activeScopeExtras(
 } {
   const category = findCategory(categoryId);
   const bizMarkers: string[] = [];
-  const chatterExceptions = [...(category?.chatterExceptions ?? [])];
+  const chatterExceptions = [
+    ...(category?.chatterExceptions ?? []),
+    ...(findView(categoryId, viewId)?.chatterExceptions ?? []),
+  ];
   const chronicExceptions = [...(category?.chronicExceptions ?? [])];
   let keepIndexer = false;
 

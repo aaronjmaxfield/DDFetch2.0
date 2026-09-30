@@ -978,6 +978,17 @@ export function acaPaymentResultPhrase(agencyUpper: string, env: EnvironmentDef)
   return `"${acaSegmentToken(agencyUpper, env)}/Cap/PaymentResult.aspx"`;
 }
 
+/**
+ * The gateway-to-ACA postback for classic redirect adapters,
+ * `POST /{AGENCY}/payment/paymentpostback.aspx`. Same phrase reasoning as
+ * `acaPaymentResultPhrase`. The wildcard `*paymentpostback.aspx*` is NOT a safe
+ * substitute: measured 2026-09-29 it also matched Velosimo adapter page GETs
+ * that carry the postback URL in their query string.
+ */
+export function acaPaymentPostbackPhrase(agencyUpper: string, env: EnvironmentDef): string {
+  return `"${acaSegmentToken(agencyUpper, env)}/payment/paymentpostback.aspx"`;
+}
+
 export function findHost(ui: string): HostDef | undefined {
   return HOSTS.find((h) => h.ui === ui);
 }

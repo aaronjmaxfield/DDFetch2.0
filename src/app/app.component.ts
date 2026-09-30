@@ -10,10 +10,12 @@ import {
   fieldsFor,
   findCategory,
   findOption,
+  findView,
   guidanceFor,
   ScopeField,
   ScopeGuidance,
   ScopeOption,
+  ScopeView,
   SCOPES,
   scopeSuppliesOwnLogs,
 } from './query/scopes.config';
@@ -343,6 +345,7 @@ export class AppComponent {
             category: this.scopeCategory,
             option: this.scopeOption || undefined,
             fields: this.scopeFieldValues,
+            view: this.scopeView || undefined,
           }
         : undefined,
     };
@@ -414,7 +417,8 @@ export class AppComponent {
     const { chatterExceptions, chronicExceptions } = activeScopeExtras(
       this.scopeCategory,
       this.scopeOption || undefined,
-      this.scopeFieldValues
+      this.scopeFieldValues,
+      this.scopeView || undefined
     );
     for (const p of ROUTINE_CHATTER) {
       if (chatterExceptions.includes(p.phrase)) status.kept.push(p.what);
@@ -428,8 +432,11 @@ export class AppComponent {
 
     const option = findOption(this.scopeCategory, this.scopeOption || undefined);
     const name = option ? `${category.label} / ${option.label}` : category.label;
+    const view = findView(this.scopeCategory, this.scopeView || undefined);
     status.tone = 'scoped';
-    status.label = `${name} only · ${status.hidden.length} noise patterns hidden`;
+    status.label = view
+      ? `${name} · ${view.label.toLowerCase()} only`
+      : `${name} only · ${status.hidden.length} noise patterns hidden`;
     return status;
   }
 
@@ -541,7 +548,7 @@ export class AppComponent {
    * the Instructions panel, so scope-specific help costs no card height.
    */
   get activeGuidance(): ScopeGuidance | null {
-    return guidanceFor(this.scopeCategory, this.scopeOption);
+    return guidanceFor(this.scopeCategory, this.scopeOption, this.scopeView || undefined);
   }
 
   get activeScopeLabel(): string {
@@ -550,12 +557,24 @@ export class AppComponent {
 
   scopeCategory = '';
   scopeOption = '';
+  /** A "Looking for" view id, or '' for all activity. See ScopeView. */
+  scopeView = '';
   /** Keyed by ScopeField.id. */
   scopeFieldValues: Record<string, string> = {};
 
   /** Provider/service options for the chosen category. */
   get scopeOptions(): ScopeOption[] {
     return findCategory(this.scopeCategory)?.options ?? [];
+  }
+
+  /** "Looking for" views for the chosen category. Payment only, today. */
+  get scopeViews(): ScopeView[] {
+    return findCategory(this.scopeCategory)?.views ?? [];
+  }
+
+  onScopeViewChange(value: string) {
+    this.scopeView = value;
+    this.previews = [];
   }
 
   /** The fields to render right now -- category-level plus option-level. */
@@ -568,6 +587,7 @@ export class AppComponent {
     // Drop the narrower selections rather than carrying a stale provider or a
     // field that no longer exists in the new category.
     this.scopeOption = '';
+    this.scopeView = '';
     this.scopeFieldValues = {};
     this.previews = [];
   }
@@ -590,6 +610,7 @@ export class AppComponent {
   clearScope() {
     this.scopeCategory = '';
     this.scopeOption = '';
+    this.scopeView = '';
     this.scopeFieldValues = {};
     this.previews = [];
   }
