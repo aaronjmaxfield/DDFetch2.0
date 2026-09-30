@@ -74,6 +74,16 @@ describe('SecurePay SOP signals', () => {
       expect(hint).toContain('use only the part after the last colon');
     });
 
+    it('sends the aca-... success-page reference to the trace field, not the gateway field', () => {
+      const fields = findCategory('payment')?.fields ?? [];
+      const gateway = fields.find((f) => f.id === 'providerTxId')?.hint ?? '';
+      expect(gateway).toContain('p1_txn_');
+      expect(gateway).toContain('NOT the aca-...');
+      const trace = findCategory('payment')?.options.find((o) => o.id === 'securepay')
+        ?.fields?.find((f) => f.id === 'securePayTraceId')?.hint ?? '';
+      expect(trace).toContain('success or failure page');
+    });
+
     it('leaves the short form alone and does not warn', () => {
       const { query, warnings } = v2.build(securePay({}, { transactionId: 'AGCY-12345' }));
       expect(query).toContain('*AGCY-12345*)');

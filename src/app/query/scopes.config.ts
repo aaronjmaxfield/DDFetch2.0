@@ -388,7 +388,14 @@ const providerTxId: ScopeField = {
   id: 'providerTxId',
   label: "Gateway's transaction ID",
   placeholder: 'trn_0000aaaa-11bb-... or 1A234567BC890123D',
-  hint: "The gateway's own reference, not Accela's. This is the one printed on the cardholder's receipt and shown in the provider's portal, so it is usually what a customer can give you.",
+  /*
+   * SecurePay made the old hint wrong (2026-09-30): users took the aca-...
+   * reference on the citizen's success page for the gateway ID. That is the
+   * ACA completion trace and goes in SecurePay trace ID. SecurePay's gateway ID
+   * is the Payrix p1_txn_ (t1_ in test), best matched as a wildcard: 8 lines
+   * against 5 quoted or bare on a real production payment.
+   */
+  hint: "The gateway's own reference, not Accela's. For SecurePay it is the Payrix ID, p1_txn_... (t1_txn_ in test), from the Payrix portal -- NOT the aca-... reference on the citizen's success page, which goes in SecurePay trace ID. For Forte it is the trn_... on the cardholder's receipt.",
   clause: (v) => `*${v.trim()}*`,
 };
 
@@ -402,7 +409,14 @@ const securePayTraceId: ScopeField = {
   id: 'securePayTraceId',
   label: 'SecurePay trace ID',
   placeholder: 'W-20260101120000000-1a2b3c4d',
-  hint: 'Back office payments look like W-..., Citizen Access payments like aca-{agency}-... . A Citizen Access payment has TWO trace IDs -- if this one shows only the start of the payment, search by time instead. The second one is reused for every payment in the same session, so it can show more than one payment; tell them apart by batch number.',
+  /*
+   * The aca-... form is what Citizen Access shows the citizen on the payment
+   * success or failure page. Measured 2026-09-30 on one such ID over 2 days:
+   * @accela.trace_id 172 (adapter 168, parent UI 4), @TRACE_ID 39, free text
+   * 20; 220 together, covering the whole completion -- and 3 transaction IDs,
+   * so the per-session reuse holds in production.
+   */
+  hint: 'The reference shown on the Citizen Access payment success or failure page (aca-{agency}-...), or W-... for a back-office payment. A Citizen Access payment has TWO trace IDs -- if this one shows only the start of the payment, search by time instead. This one is reused for every payment in the same session, so it can show more than one payment; tell them apart by batch number.',
   clause: (v) => {
     const t = v.trim();
     return `(@accela.trace_id:${t} OR @TRACE_ID:${t} OR *${t}*)`;
