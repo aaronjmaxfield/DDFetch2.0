@@ -50,6 +50,31 @@ describe('SecurePay SOP signals', () => {
     });
   });
 
+  describe("Accela's transaction ID: urn and txn= forms", () => {
+    it('cuts a full urn to its short form, because colons in a wildcard fail the whole search', () => {
+      const { query, warnings } = v2.build(
+        securePay({}, { transactionId: 'urn:agcy:transaction-id:aa:agcy-12345' })
+      );
+      expect(query).toContain('(@TRANSACTION_ID:*AGCY-12345* OR @TRANSACTION_ID:*agcy-12345* OR *agcy-12345*)');
+      expect(query).not.toContain('*urn:');
+      expect(warnings.some((w) => w.includes('Searching the short form "agcy-12345"'))).toBe(true);
+    });
+
+    it('accepts the txn=urn:... value copied from the callback line', () => {
+      const { query } = v2.build(
+        securePay({}, { transactionId: 'txn=urn:agcy:transaction-id:aa:agcy-12345' })
+      );
+      expect(query).toContain('*agcy-12345*');
+      expect(query).not.toContain('txn=');
+    });
+
+    it('leaves the short form alone and does not warn', () => {
+      const { query, warnings } = v2.build(securePay({}, { transactionId: 'AGCY-12345' }));
+      expect(query).toContain('*AGCY-12345*)');
+      expect(warnings.some((w) => w.includes('Searching the short form'))).toBe(false);
+    });
+  });
+
   describe('Merchant ID field', () => {
     it('emits free text, because no @merchant facet exists', () => {
       const { query } = v2.build(securePay({}, { payrixMerchantId: 't1_mer_0123456789abcdef0123456' }));

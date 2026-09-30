@@ -297,16 +297,36 @@ const transactionId: ScopeField = {
    */
   label: "Accela's transaction ID",
   placeholder: 'AGCY-12345',
-  hint: "The transaction number Accela generates. Short form or the full urn both work, and both casings are searched, because the back office writes it uppercase and Citizen Access lowercase. This is NOT the number on the cardholder's receipt.",
+  hint: "The transaction number Accela generates, e.g. AGCY-12345. You can paste the full urn or a txn=urn:... value straight from a log line -- it is cut to the short form automatically. Both casings are searched, because the back office writes it uppercase and Citizen Access lowercase. This is NOT the number on the cardholder's receipt.",
   clause: (v) => {
-    const t = v.trim();
+    const t = shortTransactionId(v);
     // Both casings: the facet is case sensitive and the platform decides which
     // one is written. A free-text match on the tail also catches the lines that
     // carry the id in the body but NOT on the @TRANSACTION_ID facet -- which
     // includes the purpose/amount line, the one that says what was paid.
     return `(@TRANSACTION_ID:*${t.toUpperCase()}* OR @TRANSACTION_ID:*${t.toLowerCase()}* OR *${t}*)`;
   },
+  warn: (v) =>
+    v.includes(':')
+      ? `Searching the short form "${shortTransactionId(v)}". A full urn contains colons, which Datadog cannot search inside a wildcard -- it rejects the whole search -- and the short form finds the same lines.`
+      : undefined,
 };
+
+/*
+ * CORRECTED 2026-09-25: the hint used to say the full urn worked. It did not.
+ * `urn:agcy:transaction-id:aa:agcy-123` inside `*...*` puts colons in a
+ * wildcard, and Datadog answered HTTP 400 for the ENTIRE query -- measured on
+ * a real SecurePay AA payment, both the free-text and the @TRANSACTION_ID
+ * form. The short tail returned all 41 adapter lines for the same payment, 35
+ * of them only through the facet and 6 (including the adapter's
+ * `processing multimerchant callback: platform=aa txn=urn:...` line) through
+ * either. So everything up to the last colon is dropped, along with a
+ * `txn=` prefix copied from that callback line.
+ */
+function shortTransactionId(v: string): string {
+  const t = v.trim().replace(/^txn=/i, '');
+  return t.includes(':') ? t.slice(t.lastIndexOf(':') + 1) : t;
+}
 
 const providerTxId: ScopeField = {
   id: 'providerTxId',
