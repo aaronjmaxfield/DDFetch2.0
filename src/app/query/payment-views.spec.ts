@@ -99,12 +99,17 @@ describe('Payment "Looking for" views', () => {
       expect(v2.build(payment('adapter')).query).toContain('(*adapterName* AND -@logger.name:*)');
     });
 
-    it('also reads the adapter-specific loggers and the postback line, because EPaymentConfig can be absent for an agency', () => {
+    it('also reads the postback line naming the adapter, because EPaymentConfig can be absent for an agency', () => {
       const q = v2.build(payment('adapter')).query;
-      expect(q).toContain('Accela.ACA.Web.Payment.AccelaAdapterPayment');
-      expect(q).toContain('Accela.ACA.Web.Payment.CoBrandPlusHandler');
       // The colon-joined phrase must include the step, or it matches 0.
       expect(q).toContain('"Redirect Payment Logging:HandlePostbackData"');
+    });
+
+    it('does not take the adapter logger families -- every payment step, one postback field per line', () => {
+      const q = v2.build(payment('adapter')).query;
+      expect(q).not.toContain('AccelaAdapterPayment');
+      expect(q).not.toContain('CoBrandPlusHandler');
+      expect(q).not.toContain('Waiting for webhook response');
     });
 
     it('says the biz arm is back-office payments only', () => {

@@ -543,17 +543,20 @@ const PAYMENT_VIEWS: ScopeView[] = [
      * Forte agency on ACA PROD wrote ZERO of them in 30 days while writing
      * 9,142 `AccelaAdapterPayment` lines in 15; its peers LEECO (2,496 a day)
      * and POLKCO (637) do write them. Mechanism not identified. So the view
-     * also takes the two adapter-specific logger families -- the only ones
-     * that exist (custom-adapter audit) -- US PROD, 24h:
-     *   Accela.ACA.Web.Payment.AccelaAdapterPayment   67,641
-     *   Accela.ACA.Web.Payment.AccelaAdapterHandler   23,187
-     *   Accela.ACA.Web.Payment.CoBrandPlusPayment     15,594
-     *   Accela.ACA.Web.Payment.CoBrandPlusHandler      2,081
-     * and `Redirect Payment Logging:HandlePostbackData`, which names the
-     * adapter as `AdapterName=` for AccelaAdapter, OPCoBrandPlus, PayPal43,
-     * SeattlePayment, VirtualMerchant and Trust Account (log shape 2026-09-29;
-     * the colon-joined phrase must include the step or it matches 0). It
-     * carries no @agencycode, so it arrives through the ACA free-text arm.
+     * also takes `Redirect Payment Logging:HandlePostbackData`, one line per
+     * returned payment naming the adapter as `AdapterName=` -- AccelaAdapter,
+     * OPCoBrandPlus, PayPal43, SeattlePayment, VirtualMerchant, Trust Account
+     * (log shape 2026-09-29; the colon-joined phrase must include the step or
+     * it matches 0). ~17 a day on that agency. It carries no @agencycode, so
+     * it arrives through the ACA free-text arm.
+     *
+     * NOT the adapter logger families (AccelaAdapterPayment/Handler,
+     * CoBrandPlusPayment/Handler). Shipped that way 2026-10-01 and pulled the
+     * same day: they are every step of every payment -- the postback dumped
+     * one field per line (amount, address, phone, response code) -- ~600 lines
+     * a day on one agency, answering nothing at a glance. Nor
+     * "AccelaAdapter - Waiting for webhook response": it repeats while the
+     * page polls, 3,522 a day on DELAND.
      *
      * The non-ACA arm is BACK-OFFICE ONLY: the biz line naming the provider
      * urn when a payment starts. 2,189 of 2,189 in 15 days carried
@@ -564,7 +567,6 @@ const PAYMENT_VIEWS: ScopeView[] = [
         [
           '@logger.name:EPaymentConfig',
           '(*adapterName* AND -@logger.name:*)',
-          '@logger.name:(Accela.ACA.Web.Payment.AccelaAdapterPayment OR Accela.ACA.Web.Payment.AccelaAdapterHandler OR Accela.ACA.Web.Payment.CoBrandPlusPayment OR Accela.ACA.Web.Payment.CoBrandPlusHandler)',
           '"Redirect Payment Logging:HandlePostbackData"',
         ],
         ['"Calling Payment Adapter Event Log Initiate Endpoint Successful"']
@@ -573,7 +575,7 @@ const PAYMENT_VIEWS: ScopeView[] = [
     needs: [
       {
         app: 'Citizen Access',
-        why: 'every Citizen Access adapter line is missing -- the adapter setting, the Forte and CoBrandPlus handlers and the postback naming the adapter. Only back-office payments can show up, and an agency that takes payments only through Citizen Access will look like it has no adapter.',
+        why: 'every Citizen Access adapter line is missing -- the adapter setting and the postback line naming the adapter. Only back-office payments can show up, and an agency that takes payments only through Citizen Access will look like it has no adapter.',
       },
       {
         app: 'Civic Platform',
@@ -581,14 +583,13 @@ const PAYMENT_VIEWS: ScopeView[] = [
       },
     ],
     blindSpots:
-      'Payment adapter: shows Citizen Access reading its payment adapter setting, the adapter-specific Citizen Access lines (Forte/AccelaAdapter and CoBrandPlus) and the postback line naming the adapter, plus the Civic Platform line naming the provider when a BACK-OFFICE payment starts (Citizen Access payments never write that one). It shows what is configured or used, not what a particular payment used -- an agency can have more than one.',
+      'Payment adapter: shows Citizen Access reading its payment adapter setting and the postback line naming the adapter (one per returned payment), plus the Civic Platform line naming the provider when a BACK-OFFICE payment starts (Citizen Access payments never write that one). It shows what is configured or used, not what a particular payment used -- an agency can have more than one.',
     guidance: {
       what: 'The payment adapter this agency is configured to use, read from the logs rather than guessed.',
       useWhen: ['You do not know which gateway or adapter the agency uses'],
       notes: [
         'Start with a short window and widen it if nothing shows. Most agencies log the adapter setting constantly, but some never log it at all -- one Forte agency wrote none in 30 days -- so read the other lines too.',
         'adapterName:{name} or adapter:{name} is the setting. AccelaAdapter means the payment goes through the payment adapter service -- Forte, SecurePay or PayPal; anything else is a custom or third-party adapter.',
-        'A logger named ...AccelaAdapterPayment or ...AccelaAdapterHandler means standard Forte (AccelaAdapter); ...CoBrandPlusPayment / ...CoBrandPlusHandler means CoBrandPlus / Official Payments.',
         '"Redirect Payment Logging:HandlePostbackData ... AdapterName={name}" names the adapter a payment came back through.',
         '"Calling Payment Adapter Event Log Initiate Endpoint Successful" is back-office payments only, with the provider in providerId. Its absence says nothing about Citizen Access.',
         'Needs Citizen Access ticked -- that is where nearly all of this is logged.',
