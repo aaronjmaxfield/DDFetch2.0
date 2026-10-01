@@ -117,7 +117,11 @@
   }
 
   <main class="panel form-panel">
-      <form>
+      <!-- (change) is a deliberate no-op: the application and service checkboxes
+           have no bindings of their own, and without a listener ticking one
+           triggers no change detection, so live readouts that read them (the
+           missing-tier alert, the scope chip notes) went stale. -->
+      <form (change)="onFormChange()">
         <!-- Title and logo -->
         <header class="app-header">
           <div class="app-header-text" [class.petted]="petted">
@@ -284,8 +288,8 @@
               @if (rangeNeedsRehydration) {
                 <span class="range-rehydrate"
                   ><span>rehydration required</span
-                  ><span class="range-rehydrate-sep" aria-hidden="true">·</span
-                  >@if (rawMode) {<button type="button" class="range-rehydrate-action" (click)="onRawModeToggle(false)">Raw logs on</button>} @else {<button type="button" class="range-rehydrate-action" (click)="onRawModeToggle(true)">use Raw logs?</button>}</span
+                  >@if (rawModeApplies) {<span class="range-rehydrate-sep" aria-hidden="true">·</span
+                  >@if (rawMode) {<button type="button" class="range-rehydrate-action" (click)="onRawModeToggle(false)">Raw logs on</button>} @else {<button type="button" class="range-rehydrate-action" (click)="onRawModeToggle(true)">use Raw logs?</button>}}</span
                 >
               }
               <div class="range-field">
@@ -476,8 +480,14 @@
           still reads additionalServices through them, so the checkbox path and
           the scoped path coexist and nothing downstream had to change.
         -->
-        <!-- Three across when the category has "Looking for" views, so the
-             third dropdown costs no card height. -->
+        <!-- Half each, unless the category has "Looking for" views. Then Scope
+             keeps the col-md-4 width so it lines up with the fields above,
+             Provider takes what is left (col-md), and "Looking for" takes only
+             what it needs (col-md-auto): its label above a
+             smaller, pill-shaped select, so it reads as a different kind of
+             control. col-md must NOT be used without views -- with no Provider
+             dropdown it lets Scope run the full width. (An own-row layout was
+             also tried, 2026-10-01, and kept out of the form.) -->
         <div class="row form-row">
           <div [class.col-md-6]="!scopeViews.length" [class.col-md-4]="scopeViews.length">
             <label for="scopeCategory">Scope <span class="opt">optional</span></label>
@@ -498,7 +508,7 @@
           </div>
 
           @if (scopeOptions.length) {
-            <div [class.col-md-6]="!scopeViews.length" [class.col-md-4]="scopeViews.length">
+            <div [class.col-md-6]="!scopeViews.length" [class.col-md]="scopeViews.length">
               <label for="scopeOption">{{ scopeCategory === 'payment' ? 'Provider' : 'Service' }}</label>
               <select
                 class="form-control"
@@ -514,10 +524,10 @@
           }
 
           @if (scopeViews.length) {
-            <div class="col-md-4">
-              <label for="scopeView">Looking for</label>
+            <div class="col-md-auto view-col">
+              <label for="scopeView">Focus</label>
               <select
-                class="form-control"
+                class="form-control view-select"
                 id="scopeView"
                 (change)="onScopeViewChange($any($event.target).value)"
               >
@@ -551,6 +561,23 @@
               <span class="scope-chip-icon" aria-hidden="true">i</span>
               <span>{{ s.label }}</span>
             </button>
+            <!-- Beside the chip, not in its collapsed notes: a missing tier explains an
+                 empty result better than anything else. Short label, the reasons
+                 in the hover. See tierAlerts. -->
+            @if (tierAlerts.length) {
+              <div class="tier-alerts">
+                @for (a of tierAlerts; track a.label) {
+                  <span
+                    class="tier-alert"
+                    tabindex="0"
+                    role="note"
+                    [attr.data-tip]="a.detail"
+                    [attr.aria-label]="a.label + '. ' + a.detail"
+                    ><span class="tier-alert-i" aria-hidden="true">i</span><span>{{ a.label }}</span></span
+                  >
+                }
+              </div>
+            }
             @if (scopeNotesOpen) {
               <div class="scope-notes" id="scopeNotes">
                 @if (s.hidden.length) {

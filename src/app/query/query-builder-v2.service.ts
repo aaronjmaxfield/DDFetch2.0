@@ -19,6 +19,7 @@ import {
   findOption,
   findView,
   scopeSuppliesOwnLogs,
+  tierNeedWarnings,
 } from './scopes.config';
 import {
   chronicExclusion,
@@ -295,6 +296,10 @@ export class QueryBuilderV2Service implements QueryEngine {
       }
     }
 
+    // Shown FIRST (unshifted before return): a missing tier explains an empty
+    // result better than anything else on the list.
+    const tierWarnings = raw ? [] : tierNeedWarnings(input.applications, input.scope);
+
     /*
      * Additional parameters go in the `typed` group but BEFORE the scope
      * fields, so the identifier stays dead last. Both are the user's own, and
@@ -421,6 +426,7 @@ export class QueryBuilderV2Service implements QueryEngine {
      */
     const query = [...exclusions, identityGroup, ...scoping, ...typed].join(' AND ');
 
+    warnings.unshift(...tierWarnings);
     return { query, warnings, errors };
   }
 

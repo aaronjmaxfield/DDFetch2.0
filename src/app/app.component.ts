@@ -12,12 +12,14 @@ import {
   findOption,
   findView,
   guidanceFor,
+  isTierNeedWarning,
   ScopeField,
   ScopeGuidance,
   ScopeOption,
   ScopeView,
   SCOPES,
   scopeSuppliesOwnLogs,
+  tierNeedWarnings,
 } from './query/scopes.config';
 
 /** What the scope status chip says, and what its details list. */
@@ -237,6 +239,17 @@ export class AppComponent {
     }
 
     if (!this.validateForm()) return;
+
+    /*
+     * A preset is RELATIVE: "Past 15 Days" means 15 days back from the moment
+     * of Fetch, the way Datadog's own presets work. It used to be resolved once,
+     * when picked, so after half an hour on the page the stored start had
+     * drifted past the 15-day line and Fetch silently switched to rehydration
+     * (reported 2026-10-01). Re-resolving here also keeps every other preset's
+     * end at "now" instead of when the dropdown was last touched. A custom
+     * range is absolute and left alone.
+     */
+    if (this.selectedTimeframe !== AppComponent.CUSTOM_TIMEFRAME) this.onTimeframeChange();
 
     const [beginUnix, endUnix] = this.convertTimestamps();
     if (!this.validateTimestamps(beginUnix, endUnix)) return;
@@ -460,9 +473,52 @@ export class AppComponent {
     const result = this.v2Engine.build(input);
     if (result.errors.length || !result.query) return [];
     return result.warnings.filter(
-      (w) => !w.startsWith('Hidden because') && !w.startsWith('Kept because')
+      (w) => !w.startsWith('Hidden because') && !w.startsWith('Kept because') && !isTierNeedWarning(w)
     );
   }
+
+  /**
+   * "Citizen Access is not ticked, so ..." and friends, shown as a visible
+   * alert under the scope controls. They used to sit in the collapsed scope
+   * notes, where nobody saw them (reported 2026-10-01). Computed from the live
+   * checkboxes and scope alone -- no agency needed -- so they appear the moment
+   * the combination is picked, not after the form is complete. Same function
+   * the engine uses, so the two cannot disagree. Silent in raw mode, which
+   * ignores scopes, and for Legacy, which has none.
+   */
+  /** Exists only so a checkbox toggle runs change detection. See the <form> note. */
+  onFormChange() {}
+
+  get tierAlerts(): { label: string; detail: string }[] {
+    if (this.rawMode || this.engineMode === 'legacy' || !this.scopeCategory) return [];
+    const warnings = tierNeedWarnings(this.getCheckedApplications(), {
+      category: this.scopeCategory,
+      option: this.scopeOption || undefined,
+      view: this.scopeView || undefined,
+      fields: this.scopeFieldValues,
+    });
+    /*
+     * One short pill per missing application, the full reasons in its hover
+     * (asked for 2026-10-01: the full sentences were too large on the form).
+     * The generic "scope only narrows Civic Platform" note has no app prefix,
+     * and it is about Civic Platform.
+     */
+    const byApp = new Map<string, string[]>();
+    for (const w of warnings) {
+      const app = AppComponent.TIER_LABELS.find(([a]) => w.startsWith(`${a} is not ticked`))?.[0] ?? 'Civic Platform';
+      byApp.set(app, [...(byApp.get(app) ?? []), w]);
+    }
+    return AppComponent.TIER_LABELS.filter(([a]) => byApp.has(a)).map(([a, label]) => ({
+      label,
+      detail: byApp.get(a)!.join(' '),
+    }));
+  }
+
+  private static readonly TIER_LABELS: [string, string][] = [
+    ['Citizen Access', 'ACA logs recommended'],
+    ['Civic Platform', 'Civic Platform logs recommended'],
+    ['CAPI', 'Construct API logs recommended'],
+  ];
 
   private liveValue(id: string): string {
     return (document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null)?.value ?? '';
@@ -470,8 +526,22 @@ export class AppComponent {
 
   /** Whether the chosen start is past the live window, as the picker shows it. */
   get rangeNeedsRehydration(): boolean {
+    // Presets are re-resolved at Fetch (see onSubmit) and none reaches past 15
+    // days, so a preset never needs it -- however stale the stored start is.
+    if (this.selectedTimeframe !== AppComponent.CUSTOM_TIMEFRAME) return false;
     const begin = new Date(this.activeBeginCalendarValue).getTime();
     return !Number.isNaN(begin) && this.isTimestampMoreThanFifteenDaysAgo(begin);
+  }
+
+  /**
+   * Whether "use Raw logs?" means anything. Raw mode removes the engine's
+   * filters, and every one of them is scope-gated: with no Scope picked the
+   * query is already unfiltered, so offering it there is noise (reported
+   * 2026-10-01). A test pins that an unscoped query is identical with and
+   * without raw mode. Still shown while raw is ON, so it can be turned off.
+   */
+  get rawModeApplies(): boolean {
+    return this.rawMode || !!this.scopeCategory;
   }
 
   /** The picker's window in UTC, for the trigger's tooltip. */

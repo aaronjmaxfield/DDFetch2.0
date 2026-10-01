@@ -98,6 +98,18 @@ describe('Payment "Looking for" views', () => {
     it('falls back to free text for Oregon, whose ACA lines have no logger facet', () => {
       expect(v2.build(payment('adapter')).query).toContain('(*adapterName* AND -@logger.name:*)');
     });
+
+    it('also reads the adapter-specific loggers and the postback line, because EPaymentConfig can be absent for an agency', () => {
+      const q = v2.build(payment('adapter')).query;
+      expect(q).toContain('Accela.ACA.Web.Payment.AccelaAdapterPayment');
+      expect(q).toContain('Accela.ACA.Web.Payment.CoBrandPlusHandler');
+      // The colon-joined phrase must include the step, or it matches 0.
+      expect(q).toContain('"Redirect Payment Logging:HandlePostbackData"');
+    });
+
+    it('says the biz arm is back-office payments only', () => {
+      expect(findView('payment', 'adapter')!.blindSpots).toContain('BACK-OFFICE');
+    });
   });
 
   describe('Failed postbacks and callbacks', () => {
@@ -146,6 +158,70 @@ describe('Payment "Looking for" views', () => {
     const PROVIDER = 'No Provider is selected';
     expect(v2.build(payment('outcomes')).warnings.some((w) => w.includes(PROVIDER))).toBe(true);
     expect(v2.build(payment('outcomes', {}, 'forte')).warnings.some((w) => w.includes(PROVIDER))).toBe(false);
+  });
+
+  describe('warns when a tier the view needs is not ticked', () => {
+    const NOT_TICKED = (app: string) => (w: string) => w.startsWith(`${app} is not ticked`);
+
+    it('Payment adapter without Citizen Access -- the ACA-only Forte agency miss, 2026-10-01', () => {
+      const w = v2.build(payment('adapter', { applications: ['Civic Platform'] })).warnings;
+      expect(w.some(NOT_TICKED('Citizen Access'))).toBe(true);
+      expect(w.some(NOT_TICKED('Civic Platform'))).toBe(false);
+    });
+
+    it('Payment adapter without Civic Platform', () => {
+      const w = v2.build(payment('adapter', { applications: ['Citizen Access'] })).warnings;
+      expect(w.some(NOT_TICKED('Civic Platform'))).toBe(true);
+    });
+
+    it('says nothing when both are ticked', () => {
+      for (const id of VIEW_IDS) {
+        const w = v2.build(payment(id)).warnings;
+        expect(w.some((x) => x.includes('is not ticked'))).toBe(false);
+      }
+    });
+
+    it('Failed postbacks without Citizen Access', () => {
+      const w = v2.build(payment('postback-failures', { applications: ['Civic Platform'] })).warnings;
+      expect(w.some(NOT_TICKED('Citizen Access'))).toBe(true);
+    });
+
+    it('the custom-adapter and CoBrandPlus options filter only ACA, so they need it', () => {
+      for (const opt of ['custom-adapter', 'cobrandplus']) {
+        const w = v2.build(payment(undefined, { applications: ['Civic Platform'] }, opt)).warnings;
+        expect(w.some(NOT_TICKED('Citizen Access'))).toBe(true);
+      }
+    });
+
+    it('EMSE and Batch need Civic Platform', () => {
+      for (const category of ['emse', 'batch']) {
+        const w = v2.build({
+          ...payment(),
+          applications: ['Citizen Access'],
+          scope: { category, fields: {} },
+        }).warnings;
+        expect(w.some(NOT_TICKED('Civic Platform'))).toBe(true);
+      }
+    });
+
+    it('a marker-only scope with Civic Platform unticked changes nothing, and says so', () => {
+      const GENERIC = 'only narrows Civic Platform lines';
+      const base = { ...payment(), applications: ['Citizen Access'] };
+      const records = (fields: Record<string, string>) =>
+        v2.build({ ...base, scope: { category: 'records', fields } }).warnings;
+      expect(records({}).some((w) => w.includes(GENERIC))).toBe(true);
+      // A field value scopes the ACA side too, so the scope does do something.
+      expect(records({ capId: '26ABC-00000-00001' }).some((w) => w.includes(GENERIC))).toBe(false);
+      // Not when Civic Platform is ticked.
+      expect(
+        v2.build({ ...payment(), scope: { category: 'records', fields: {} } }).warnings.some((w) => w.includes(GENERIC))
+      ).toBe(false);
+    });
+
+    it('stays quiet in raw mode, which ignores scopes', () => {
+      const w = v2.build(payment('adapter', { applications: ['Civic Platform'], rawMode: true })).warnings;
+      expect(w.some((x) => x.includes('is not ticked'))).toBe(false);
+    });
   });
 
   it("lists the view's guidance first", () => {

@@ -133,6 +133,10 @@ describe('AppComponent (characterization)', () => {
     }
 
     function setTimestamps(begin: string, end: string) {
+        // The picker marks any hand-picked range Custom; these hidden inputs
+        // stand in for it. Without this the default preset is re-resolved at
+        // Fetch and the range written here is replaced.
+        component.selectedTimeframe = 'CUSTOM';
         setText('inputBeginTimestamp', begin);
         setText('inputEndTimestamp', end);
         fixture.detectChanges();

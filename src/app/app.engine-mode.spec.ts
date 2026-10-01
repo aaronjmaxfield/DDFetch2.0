@@ -261,6 +261,7 @@ describe('AppComponent engine modes', () => {
     it('flags a rehydration-bound search in the preview', () => {
         component.engineMode = 'v2';
         fillValidForm();
+        component.selectedTimeframe = 'CUSTOM';
         const b = el('inputBeginTimestamp') as HTMLInputElement;
         b.value = '2026-07-01T00:00';
         b.dispatchEvent(new Event('input'));
@@ -280,6 +281,9 @@ describe('AppComponent engine modes', () => {
     it('toggles Raw logs from the rehydration tag, both ways', () => {
         component.engineMode = 'v2';
         fillValidForm();
+        component.selectedTimeframe = 'CUSTOM';
+        // Raw logs is only offered while a Scope is picked; see the next test.
+        component.scopeCategory = 'payment';
         const b = el('inputBeginTimestamp') as HTMLInputElement;
         b.value = '2026-07-01T00:00';
         b.dispatchEvent(new Event('input'));
@@ -305,6 +309,60 @@ describe('AppComponent engine modes', () => {
         const pill = fixture.nativeElement.querySelector('.range-rehydrate') as HTMLElement;
         expect(pill.firstChild?.textContent).toBe('rehydration required');
         expect((fixture.nativeElement.querySelector('.range-rehydrate-action') as HTMLElement).textContent).toBe('use Raw logs?');
+    });
+
+    it('does not offer Raw logs on the rehydration tag when nothing is scoped', () => {
+        component.engineMode = 'v2';
+        fillValidForm();
+        component.selectedTimeframe = 'CUSTOM';
+        const b = el('inputBeginTimestamp') as HTMLInputElement;
+        b.value = '2026-07-01T00:00';
+        b.dispatchEvent(new Event('input'));
+        fixture.detectChanges();
+
+        // Unscoped is already unfiltered, so raw would change nothing.
+        expect(fixture.nativeElement.querySelector('.range-rehydrate')).toBeTruthy();
+        expect(fixture.nativeElement.querySelector('.range-rehydrate-action')).toBeNull();
+        expect(fixture.nativeElement.querySelector('.range-rehydrate-sep')).toBeNull();
+    });
+
+    it('re-resolves a stale "Past 15 Days" at Fetch instead of rehydrating', () => {
+        component.engineMode = 'v2';
+        fillValidForm();
+        component.selectedTimeframe = 'Past 15 Days';
+        component.onTimeframeChange();
+        // Simulate the page left open: the stored start is now 16 days back.
+        const stale = new Date(Date.now() - 16 * 24 * 3600 * 1000);
+        const local = new Date(stale.getTime() - stale.getTimezoneOffset() * 60000);
+        component.activeBeginCalendarValue = local.toISOString().slice(0, 16);
+        fixture.detectChanges();
+
+        expect(fixture.nativeElement.querySelector('.range-rehydrate')).toBeNull();
+        submit();
+        expect(component.previews[0].rehydrate).toBe(false);
+        expect(component.previews[0].url).not.toContain('historical-views');
+    });
+
+    it('shows the missing-tier warning as a visible alert, not in the collapsed notes', () => {
+        component.engineMode = 'v2';
+        fillValidForm({ apps: ['Civic Platform'] });
+        (el('citizenAccessCheckbox') as HTMLInputElement).checked = false;
+        component.scopeCategory = 'payment';
+        component.scopeView = 'adapter';
+        fixture.componentRef.changeDetectorRef.markForCheck();
+        fixture.detectChanges();
+
+        const alerts = Array.from(fixture.nativeElement.querySelectorAll('.tier-alert')) as HTMLElement[];
+        // Short label on the form, the reasons in the hover.
+        const aca = alerts.find((a) => a.textContent!.includes('ACA logs recommended'))!;
+        expect(aca).toBeTruthy();
+        expect(aca.getAttribute('data-tip')).toMatch(/^Citizen Access is not ticked, so /);
+        expect(component.scopeStatus.notes.some((n) => n.includes('is not ticked'))).toBe(false);
+
+        // A real click, so the form's change listener is what refreshes it.
+        (el('citizenAccessCheckbox') as HTMLInputElement).click();
+        fixture.detectChanges();
+        expect(fixture.nativeElement.querySelector('.tier-alert')).toBeNull();
     });
 
     // ------------------------------------------------------------------ errors

@@ -115,9 +115,30 @@ export interface ScopeField {
   keepIndexer?: boolean;
 }
 
+/**
+ * An application tier a category, option or view cannot work without.
+ *
+ * Added 2026-10-01 after the "Which adapter" view returned nothing for a Forte
+ * agency: the view's evidence is on the ACA tier, Citizen Access was unticked,
+ * so the query carried no ACA identity arm and the view's ACA clause ANDed
+ * against lines that were never fetched. Nothing on screen said so.
+ *
+ * The engine does NOT tick the box itself -- widening a search without saying
+ * so is the same failure as narrowing one silently (see the 2026-09-02 note in
+ * the v2 builder). It warns, naming what is missing and why.
+ */
+export type AppTier = 'Civic Platform' | 'Citizen Access' | 'CAPI';
+export interface TierNeed {
+  app: AppTier;
+  /** Finishes "X is not ticked, so ...". Say what will be missing, in ticket terms. */
+  why: string;
+}
+
 export interface ScopeOption {
   id: string;
   label: string;
+  /** Tiers this option cannot work without. See TierNeed. */
+  needs?: TierNeed[];
   /**
    * The `ADDITIONAL_SERVICES` entry this option maps to, so the existing
    * service-branch builder is reused rather than reimplemented.
@@ -199,6 +220,8 @@ export interface ScopeView {
   chatterExceptions?: string[];
   /** Always shown as a warning while the view is on. */
   blindSpots: string;
+  /** Tiers whose signatures this view depends on. See TierNeed. */
+  needs?: TierNeed[];
   guidance?: Partial<ScopeGuidance>;
 }
 
@@ -306,6 +329,8 @@ export interface ScopeCategory {
    * batch-script failures actually live.
    */
   forceEmse?: boolean;
+  /** Tiers this category cannot work without. See TierNeed. */
+  needs?: TierNeed[];
 }
 
 // ---------------------------------------------------------------------------
@@ -503,7 +528,7 @@ const acaCapTimeout = ['"time out for creating the real cap"', '"AccelaAdapter w
 const PAYMENT_VIEWS: ScopeView[] = [
   {
     id: 'adapter',
-    label: 'Which adapter',
+    label: 'Payment adapter',
     /*
      * `@logger.name:EPaymentConfig` is the adapter-discovery query from the
      * custom-adapter audit: every line's message IS the adapter name. It is
@@ -514,24 +539,60 @@ const PAYMENT_VIEWS: ScopeView[] = [
      * Oregon ACA lines have no @logger.name facet at all, so the
      * `*adapterName*` arm is limited to lines with no logger.
      *
-     * The non-ACA arm is the back-office side: the biz line naming the
-     * provider urn when a payment starts (330 a day, av.biz only).
+     * EPaymentConfig is NOT reliable for one agency. Measured 2026-10-01: a
+     * Forte agency on ACA PROD wrote ZERO of them in 30 days while writing
+     * 9,142 `AccelaAdapterPayment` lines in 15; its peers LEECO (2,496 a day)
+     * and POLKCO (637) do write them. Mechanism not identified. So the view
+     * also takes the two adapter-specific logger families -- the only ones
+     * that exist (custom-adapter audit) -- US PROD, 24h:
+     *   Accela.ACA.Web.Payment.AccelaAdapterPayment   67,641
+     *   Accela.ACA.Web.Payment.AccelaAdapterHandler   23,187
+     *   Accela.ACA.Web.Payment.CoBrandPlusPayment     15,594
+     *   Accela.ACA.Web.Payment.CoBrandPlusHandler      2,081
+     * and `Redirect Payment Logging:HandlePostbackData`, which names the
+     * adapter as `AdapterName=` for AccelaAdapter, OPCoBrandPlus, PayPal43,
+     * SeattlePayment, VirtualMerchant and Trust Account (log shape 2026-09-29;
+     * the colon-joined phrase must include the step or it matches 0). It
+     * carries no @agencycode, so it arrives through the ACA free-text arm.
+     *
+     * The non-ACA arm is BACK-OFFICE ONLY: the biz line naming the provider
+     * urn when a payment starts. 2,189 of 2,189 in 15 days carried
+     * `transaction-id:aa:` -- not one Citizen Access payment.
      */
     clause: () =>
       tierSplit(
-        ['@logger.name:EPaymentConfig', '(*adapterName* AND -@logger.name:*)'],
+        [
+          '@logger.name:EPaymentConfig',
+          '(*adapterName* AND -@logger.name:*)',
+          '@logger.name:(Accela.ACA.Web.Payment.AccelaAdapterPayment OR Accela.ACA.Web.Payment.AccelaAdapterHandler OR Accela.ACA.Web.Payment.CoBrandPlusPayment OR Accela.ACA.Web.Payment.CoBrandPlusHandler)',
+          '"Redirect Payment Logging:HandlePostbackData"',
+        ],
         ['"Calling Payment Adapter Event Log Initiate Endpoint Successful"']
       ),
     chatterExceptions: ['@logger.name:EPaymentConfig'],
+    needs: [
+      {
+        app: 'Citizen Access',
+        why: 'every Citizen Access adapter line is missing -- the adapter setting, the Forte and CoBrandPlus handlers and the postback naming the adapter. Only back-office payments can show up, and an agency that takes payments only through Citizen Access will look like it has no adapter.',
+      },
+      {
+        app: 'Civic Platform',
+        why: 'back-office payments, which name their provider when they start, are missing.',
+      },
+    ],
     blindSpots:
-      'Which adapter: shows Citizen Access reading its payment adapter setting, plus the Civic Platform line naming the provider when a payment starts. It lists what is configured, not what was used for a particular payment -- an agency can have more than one.',
+      'Payment adapter: shows Citizen Access reading its payment adapter setting, the adapter-specific Citizen Access lines (Forte/AccelaAdapter and CoBrandPlus) and the postback line naming the adapter, plus the Civic Platform line naming the provider when a BACK-OFFICE payment starts (Citizen Access payments never write that one). It shows what is configured or used, not what a particular payment used -- an agency can have more than one.',
     guidance: {
       what: 'The payment adapter this agency is configured to use, read from the logs rather than guessed.',
       useWhen: ['You do not know which gateway or adapter the agency uses'],
       notes: [
-        'Use a short window -- the last hour is plenty. Citizen Access logs the setting on every page load, so a busy agency writes hundreds of thousands of identical lines a day.',
-        'The line reads adapterName:{name} or adapter:{name}. AccelaAdapter means the payment goes through the payment adapter service -- Forte, SecurePay or PayPal; anything else is a custom or third-party adapter.',
-        'Nothing at all usually means nobody used Citizen Access in the window. Widen it before concluding anything.',
+        'Start with a short window and widen it if nothing shows. Most agencies log the adapter setting constantly, but some never log it at all -- one Forte agency wrote none in 30 days -- so read the other lines too.',
+        'adapterName:{name} or adapter:{name} is the setting. AccelaAdapter means the payment goes through the payment adapter service -- Forte, SecurePay or PayPal; anything else is a custom or third-party adapter.',
+        'A logger named ...AccelaAdapterPayment or ...AccelaAdapterHandler means standard Forte (AccelaAdapter); ...CoBrandPlusPayment / ...CoBrandPlusHandler means CoBrandPlus / Official Payments.',
+        '"Redirect Payment Logging:HandlePostbackData ... AdapterName={name}" names the adapter a payment came back through.',
+        '"Calling Payment Adapter Event Log Initiate Endpoint Successful" is back-office payments only, with the provider in providerId. Its absence says nothing about Citizen Access.',
+        'Needs Citizen Access ticked -- that is where nearly all of this is logged.',
+        'SUPP and PROD can use different adapters. Check the environment you are actually troubleshooting.',
       ],
     },
   },
@@ -539,6 +600,12 @@ const PAYMENT_VIEWS: ScopeView[] = [
     id: 'postback-failures',
     label: 'Failed postbacks',
     acaIisPhrases: (c) => [acaPaymentPostbackPhrase(c.agencyUpper, c.env)],
+    needs: [
+      {
+        app: 'Citizen Access',
+        why: 'the callback pages, "success%3dfalse" replies and "time out for creating the real cap" -- most of what this view looks for -- are missing.',
+      },
+    ],
     clause: (c) =>
       tierSplit(
         [
@@ -564,7 +631,7 @@ const PAYMENT_VIEWS: ScopeView[] = [
         ]
       ),
     blindSpots:
-      'Failed postbacks: only lines matching known failure signatures are shown. A failure worded differently, or a postback that never arrived at all, leaves nothing here -- switch Looking for back to "everything" before concluding nothing failed.',
+      'Failed postbacks: only lines matching known failure signatures are shown. A failure worded differently, or a postback that never arrived at all, leaves nothing here -- switch Focus back to "everything" before concluding nothing failed.',
     guidance: {
       what: 'Only the places a payment result failed to get from the gateway into Civic Platform.',
       useWhen: [
@@ -588,6 +655,16 @@ const PAYMENT_VIEWS: ScopeView[] = [
   {
     id: 'outcomes',
     label: 'Payment outcomes',
+    needs: [
+      {
+        app: 'Citizen Access',
+        why: 'Citizen Access results (redirect-adapter confirmations, callbacks, record-creation timeouts) are missing.',
+      },
+      {
+        app: 'Civic Platform',
+        why: 'the lines saying a payment was applied to the record, or reversed, are missing.',
+      },
+    ],
     clause: (c) =>
       tierSplit(
         [
@@ -623,7 +700,7 @@ const PAYMENT_VIEWS: ScopeView[] = [
         ]
       ),
     blindSpots:
-      'Payment outcomes: only the lines that state a result are shown -- the steps in between are hidden. If a payment has a start but no outcome line, switch Looking for back to "everything" and read the whole trail.',
+      'Payment outcomes: only the lines that state a result are shown -- the steps in between are hidden. If a payment has a start but no outcome line, switch Focus back to "everything" and read the whole trail.',
     guidance: {
       what: 'One or two lines per payment saying whether it went through, from Citizen Access, Civic Platform and the adapter.',
       useWhen: [
@@ -931,6 +1008,12 @@ const CATEGORIES: ScopeCategory[] = [
          */
         id: 'custom-adapter',
         label: 'Custom / third-party adapter',
+        needs: [
+          {
+            app: 'Citizen Access',
+            why: 'this option filters nothing -- custom adapters log only on the Citizen Access tier, and that is where its filter applies.',
+          },
+        ],
         extraClause:
           'service:aca @logger.name:(Payment_PaymentRedirect OR Payment_PaymentPostback OR PayRedirect OR Accela.ACA.Web.Payment.InternalPayment OR Accela.ACA.Web.Payment.PaymentHelper OR Accela.ACA.Web.Payment.PaymentStatusEvent OR Accela.ACA.Web.Cap.PaymentCompletion OR Accela.ACA.Web.Cap.PaymentResult OR Accela.ACA.Web.Component.Payment)',
         fields: [
@@ -961,6 +1044,12 @@ const CATEGORIES: ScopeCategory[] = [
          */
         id: 'cobrandplus',
         label: 'CoBrandPlus / Official Payments',
+        needs: [
+          {
+            app: 'Citizen Access',
+            why: 'this option filters nothing -- CoBrandPlus logs only on the Citizen Access tier, and that is where its filter applies.',
+          },
+        ],
         /*
          * ACA loggers only. The builder exempts non-ACA lines automatically, so
          * the biz tier comes through under the category's payment markers --
@@ -1306,6 +1395,12 @@ const CATEGORIES: ScopeCategory[] = [
       '"Action Cancelled"',
     ],
     forceEmse: true,
+    needs: [
+      {
+        app: 'Civic Platform',
+        why: 'scripts run in Civic Platform and log there (including emse.log), so this scope has nothing to show.',
+      },
+    ],
     fields: [
       {
         id: 'scriptOrEvent',
@@ -1471,6 +1566,12 @@ const CATEGORIES: ScopeCategory[] = [
      */
     chronicExceptions: ['"BatchJobLog"'],
     forceEmse: true,
+    needs: [
+      {
+        app: 'Civic Platform',
+        why: 'batch jobs run in Civic Platform and log there, so this scope has nothing to show.',
+      },
+    ],
     fields: [
       {
         id: 'batchJobName',
@@ -1703,4 +1804,70 @@ export function fieldsFor(
   if (!category) return [];
   const option = findOption(categoryId, optionId);
   return [...(category.fields ?? []), ...(option?.fields ?? [])];
+}
+
+/**
+ * "X is not ticked" warnings, one per missing tier, for whatever the scope,
+ * option and view declare in `needs`. See TierNeed.
+ *
+ * Plus one generic case no declaration covers: a category's markers narrow
+ * ONLY the Civic Platform tier, so with Civic Platform unticked and nothing
+ * else scoping the ACA side -- no view, no option filter, no field value --
+ * picking the category changes nothing at all. True by construction: the
+ * marker clause is emitted inside the biz branch only.
+ *
+ * Warn, never tick: widening silently is the failure the 2026-09-02 note in
+ * the v2 builder's buildBizAcaBranch records.
+ *
+ * Shared by the builder and the form. The form shows these as a visible alert
+ * under the scope controls -- inside the collapsed scope notes nobody saw them
+ * (reported 2026-10-01).
+ */
+export function tierNeedWarnings(
+  applications: string[],
+  scope: { category?: string; option?: string; view?: string; fields?: Record<string, string> } | undefined
+): string[] {
+  const category = findCategory(scope?.category);
+  if (!category) return [];
+  const option = findOption(scope?.category, scope?.option);
+  const view = findView(scope?.category, scope?.view);
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const sources: [string, TierNeed[] | undefined][] = [
+    [`"${view?.label}"`, view?.needs],
+    [`The ${option?.label} option`, option?.needs],
+    [`The ${category.label} scope`, category.needs],
+  ];
+  for (const [who, needs] of sources) {
+    for (const need of needs ?? []) {
+      if (applications.includes(need.app)) continue;
+      const key = `${who}|${need.app}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(`${need.app} is not ticked, so ${need.why} ${who} needs it -- tick ${need.app}.`);
+    }
+  }
+
+  const anyField = Object.values(scope?.fields ?? {}).some((v) => !!v?.trim());
+  if (
+    category.bizMarkers?.length &&
+    !applications.includes('Civic Platform') &&
+    applications.includes('Citizen Access') &&
+    !view &&
+    !option?.extraClause &&
+    !option?.serviceUi &&
+    !anyField &&
+    !category.needs?.some((n) => n.app === 'Civic Platform')
+  ) {
+    out.push(
+      `The ${category.label} scope only narrows Civic Platform lines, and Civic Platform is not ticked -- so the scope changes nothing here and every Citizen Access line for the agency is returned. Tick Civic Platform, or fill in a field or pick a Focus.`
+    );
+  }
+  return out;
+}
+
+/** True for the warnings tierNeedWarnings produces, so the form can lift them out of the collapsed notes. */
+export function isTierNeedWarning(w: string): boolean {
+  return / is not ticked, so /.test(w) || w.includes('only narrows Civic Platform lines');
 }

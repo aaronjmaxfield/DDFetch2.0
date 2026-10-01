@@ -436,6 +436,18 @@ label {
 /* Scope status chip. One line under the Scope row; details open inline. */
 .scope-status {
   margin: -4px 0 10px;
+  /* Half the .form-row gutter (1rem): the inset every column's content has,
+     so this line starts exactly under the Scope label. */
+  padding-left: 0.5rem;
+  /* Flex so the chip and the missing-tier pill centre on one line; the notes
+     panel takes a full row of its own below them. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.scope-status > .scope-notes {
+  flex-basis: 100%;
 }
 
 .scope-chip {
@@ -1396,5 +1408,103 @@ input[type='datetime-local'] {
 
   .help-toggle {
     justify-content: center;
+  }
+}
+
+/* Missing-tier pill, inline beside the scope chip: short label, reasons in
+   the hover. Warning palette, so it reads as something to act on. */
+.tier-alerts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+/* Same box as .scope-chip -- font, line height, padding, border, 16px icon
+   on the left -- so the two pills on the line are the same size. */
+.tier-alert {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid #f0d98a;
+  border-radius: 999px;
+  background: #fff3cd;
+  color: #7a5b00;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: help;
+}
+
+.tier-alert-i {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #d39e00;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.tier-alert::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 0;
+  width: 300px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 110ms ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.tier-alert:hover::after,
+.tier-alert:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* "Looking for", third column: label above a smaller, pill-shaped select, so
+   it reads as a different kind of control from Scope and Provider. Plain block
+   layout, NOT flex: as a flex item the label sat 3px higher than the labels
+   beside it. The select centres on the 38px fields: (38 - 28) / 2 = 5px. */
+.view-col {
+  .view-select {
+    /* Sized for the longest view, "Payment outcomes", on one line. */
+    width: 140px;
+    margin-top: 5px;
+    padding-left: 10px;
+    padding-right: 26px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    height: 28px;
+    /* The global base-select rule sets min-height: 38px. */
+    min-height: 28px;
+    /* 3/1 rather than 2/2: Roboto at 12px sits high in a 28px box. Measured
+       at 4x: cap-height centre 2.5px above the box centre with 2/2. */
+    padding-top: 3px;
+    padding-bottom: 1px;
+    line-height: 1.2;
+    font-size: 12px;
+    border-radius: 999px;
+    background-position: right 8px center;
+    background-size: 13px 13px;
   }
 }
