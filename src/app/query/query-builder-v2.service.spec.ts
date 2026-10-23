@@ -690,37 +690,74 @@ describe('QueryBuilderV2Service', () => {
 
     it('A8: keeps a single quoted word that legacy silently dropped', () => {
         expect(legacy.formatAdditionalParams('"foo"')).toBe('');
-        expect(v2.formatAdditionalParams('"foo"')).toBe('("foo")');
+        expect(v2.splitAdditionalParams('"foo"')).toEqual({ terms: ['"foo"'], filters: [] });
     });
 
     it('A8: still handles a multi-word quoted phrase', () => {
-        expect(v2.formatAdditionalParams('"connection reset"')).toBe('("connection reset")');
+        expect(v2.splitAdditionalParams('"connection reset"').terms).toEqual(['"connection reset"']);
     });
 
-    it('A9: joins multiple parameters with AND so terms narrow the search', () => {
-        expect(v2.formatAdditionalParams('timeout refused')).toBe('(*timeout* AND *refused*)');
-        // Legacy widened instead.
-        expect(legacy.formatAdditionalParams('timeout refused')).toBe('*timeout* OR *refused*');
+    it('A9: multiple bare terms widen the search (OR), they do not narrow it', () => {
+        const { query } = v2.build(input({ additionalParams: 'timeout refused' }));
+        expect(query).toContain('AND (*timeout* OR *refused*)');
     });
 
-    it('A9: passes an explicit field filter through without wildcarding it', () => {
-        expect(v2.formatAdditionalParams('@USER_ID:jsmith')).toBe('(@USER_ID:jsmith)');
-        expect(v2.formatAdditionalParams('-status:info')).toBe('(-status:info)');
+    it('A9: passes an explicit field filter through without wildcarding it, as a narrowing AND', () => {
+        expect(v2.splitAdditionalParams('@USER_ID:jsmith -status:info')).toEqual({
+            terms: [],
+            filters: ['@USER_ID:jsmith', '-status:info'],
+        });
+        const { query } = v2.build(input({ additionalParams: '-status:info' }));
+        expect(query).toContain('AND -status:info');
     });
 
     it('A9: mixes a quoted phrase with a bare term', () => {
-        expect(v2.formatAdditionalParams('"connection reset" timeout')).toBe(
-            '("connection reset" AND *timeout*)'
-        );
+        expect(v2.splitAdditionalParams('"connection reset" timeout').terms).toEqual([
+            '"connection reset"',
+            '*timeout*',
+        ]);
     });
 
-    it('A9: appends parameters with AND to the main query', () => {
+    it('A9: a lone parameter with no scope identifier is still AND-ed to the main query', () => {
         const { query } = v2.build(input({ additionalParams: 'NullPointerException' }));
         expect(query).toContain('AND (*NullPointerException*)');
     });
 
-    it('A9: returns empty for whitespace-only parameters', () => {
-        expect(v2.formatAdditionalParams('   ')).toBe('');
+    it('A9: returns nothing for whitespace-only parameters', () => {
+        expect(v2.splitAdditionalParams('   ')).toEqual({ terms: [], filters: [] });
+    });
+
+    it('A9: a bare term joins the scope identifiers as an alternative, never as a separate AND', () => {
+        // The COHB case: adding the record's alt ID beside a CAP ID dropped a
+        // Forte payment from 46 lines to 28.
+        const { query, warnings } = v2.build(
+            input({
+                additionalParams: 'B2021-001794',
+                scope: {
+                    category: 'payment',
+                    option: 'forte',
+                    fields: { capId: '26ABC-00000-00001' },
+                },
+            })
+        );
+        expect(query).toMatch(/AND \(\*B2021-001794\* OR [^]*\*26ABC-00000-00001\*\)$/);
+        expect(query).not.toContain('AND (*B2021-001794*) AND');
+        expect(warnings.some((w) => w.includes('added as alternatives'))).toBe(true);
+    });
+
+    it('A9: a field filter beside a scope identifier still narrows', () => {
+        const { query } = v2.build(
+            input({
+                additionalParams: 'status:error',
+                scope: {
+                    category: 'payment',
+                    option: 'forte',
+                    fields: { capId: '26ABC-00000-00001' },
+                },
+            })
+        );
+        expect(query).toContain('AND status:error AND');
+        expect(query.endsWith('*26ABC-00000-00001*')).toBe(true);
     });
 
     // -------------------------------------------------------- A10: agencycode

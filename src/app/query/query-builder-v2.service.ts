@@ -226,9 +226,27 @@ export class QueryBuilderV2Service implements QueryEngine {
      * tier it came from. A CAP ID should cut across biz, ACA and the payment
      * adapter at once.
      */
+    /*
+     * Additional parameters ADD lines; they do not remove them. Bare terms join
+     * the scope fields' alternatives group, so `B2021-001794` beside a CAP ID
+     * finds lines carrying either. It used to be its own AND-ed group, which
+     * kept only lines carrying both: a real COHB Forte payment went from 46
+     * lines to 28 by adding the record's alt ID.
+     *
+     * NOT appended as a trailing `OR term`. AND binds tighter than OR, so that
+     * reads `(whole query) OR term` and the term escapes agency, environment
+     * and every exclusion -- harmless for a record number, a flood for `error`.
+     *
+     * Field filters and negations (`status:error`, `-foo`) still narrow: OR-ing
+     * a negation into the group would match nearly every line.
+     */
+    const params = this.splitAdditionalParams(input.additionalParams);
     if (!raw) {
-      typed.push(...this.buildScopeClauses(input, env, agency, warnings));
+      typed.push(...this.buildScopeClauses(input, env, agency, warnings, params.terms));
+    } else if (params.terms.length) {
+      typed.push(`(${params.terms.join(' OR ')})`);
     }
+    typed.unshift(...params.filters);
 
     if (!raw && scopeOption?.providerUrn) {
       /*
@@ -299,14 +317,6 @@ export class QueryBuilderV2Service implements QueryEngine {
     // Shown FIRST (unshifted before return): a missing tier explains an empty
     // result better than anything else on the list.
     const tierWarnings = raw ? [] : tierNeedWarnings(input.applications, input.scope);
-
-    /*
-     * Additional parameters go in the `typed` group but BEFORE the scope
-     * fields, so the identifier stays dead last. Both are the user's own, and
-     * the scope field is the one they come back to delete.
-     */
-    const params = this.formatAdditionalParams(input.additionalParams);
-    if (params) typed.unshift(params);
 
     /*
      * ------------------------------------------------------------------------
@@ -455,10 +465,10 @@ export class QueryBuilderV2Service implements QueryEngine {
     input: QueryInput,
     env: EnvironmentDef,
     agency: string,
-    warnings: string[]
+    warnings: string[],
+    extraTerms: string[] = []
   ): string[] {
-    const values = input.scope?.fields;
-    if (!values) return [];
+    const values = input.scope?.fields ?? {};
 
     const ctx = {
       agencyUpper: agency.toUpperCase(),
@@ -488,16 +498,27 @@ export class QueryBuilderV2Service implements QueryEngine {
       }
     }
 
-    const out: string[] = [];
-    if (alternatives.length === 1) {
-      out.push(alternatives[0]);
-    } else if (alternatives.length > 1) {
-      out.push(`(${alternatives.join(' OR ')})`);
+    if (alternatives.length > 1) {
       // Said out loud, because a union is not what "two boxes filled in" looks
       // like it should do, and a silent union would be its own trap.
       warnings.push(
         `${altLabels.join(' and ')} are treated as alternatives, so you get lines matching ANY of them rather than only lines matching all. That is deliberate: they are different names for the same thing and no single log line carries them all, so requiring all of them would return nothing.`
       );
+    }
+    if (extraTerms.length && alternatives.length) {
+      warnings.push(
+        'Additional Parameters terms are added as alternatives to the identifier fields, so they bring in more lines rather than narrowing to lines that carry both. To narrow instead, use a field filter such as status:error.'
+      );
+    }
+
+    // Extra terms first, so the scope identifier stays dead last -- it is the
+    // one the user comes back to delete.
+    const group = [...extraTerms, ...alternatives];
+    const out: string[] = [];
+    if (group.length === 1 && alternatives.length) {
+      out.push(group[0]);
+    } else if (group.length) {
+      out.push(`(${group.join(' OR ')})`);
     }
     out.push(...filters);
     return out;
@@ -1350,19 +1371,23 @@ export class QueryBuilderV2Service implements QueryEngine {
   // -------------------------------------------------------- additional params
 
   /**
-   * Tokenise additional parameters, joining with AND.
+   * Tokenise additional parameters into bare search terms, which widen the
+   * search, and field filters/negations, which narrow it. See build().
    *
-   * Two changes from legacy. Terms are AND'd, so adding a term narrows the
-   * search as users expect, rather than widening it. And the tokeniser handles
-   * a single quoted word: legacy checked startsWith('"') before
-   * endsWith('"') in an else-if chain, so `"foo"` opened a quote that never
-   * closed and the term was silently discarded.
+   * The tokeniser handles a single quoted word: legacy checked
+   * startsWith('"') before endsWith('"') in an else-if chain, so `"foo"`
+   * opened a quote that never closed and the term was silently discarded.
+   *
+   * Reversed 2026-10-22: bare terms used to be AND'd on the theory that adding
+   * a term should narrow. The user's intent is the opposite -- the box is for
+   * pulling in more of the story -- and AND-ing lost real lines.
    */
-  formatAdditionalParams(raw: string): string {
-    const text = raw.trim();
-    if (!text) return '';
-
+  splitAdditionalParams(raw: string): { terms: string[]; filters: string[] } {
     const terms: string[] = [];
+    const filters: string[] = [];
+    const text = raw.trim();
+    if (!text) return { terms, filters };
+
     // Quoted phrases stay intact; everything else splits on whitespace.
     const pattern = /"([^"]*)"|(\S+)/g;
     let match: RegExpExecArray | null;
@@ -1377,12 +1402,12 @@ export class QueryBuilderV2Service implements QueryEngine {
         const term = match[2];
         // Already a field filter or negation -- pass through untouched rather
         // than wrapping it in wildcards and breaking it.
-        terms.push(this.looksLikeFilter(term) ? term : `*${term}*`);
+        if (this.looksLikeFilter(term)) filters.push(term);
+        else terms.push(`*${term}*`);
       }
     }
 
-    if (!terms.length) return '';
-    return terms.length > 1 ? `(${terms.join(' AND ')})` : `(${terms[0]})`;
+    return { terms, filters };
   }
 
   private looksLikeFilter(term: string): boolean {
